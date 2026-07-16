@@ -8,6 +8,9 @@ license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
 authors = [{ name = "Twisha Khurana" }]
 
+[project.scripts]
+codebase-agent = "codebase_agent.cli.main:app"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
