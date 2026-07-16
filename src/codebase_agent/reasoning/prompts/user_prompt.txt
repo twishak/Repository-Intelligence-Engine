@@ -1,0 +1,5 @@
+Question: $question
+
+Evidence (numbered - cite by number):
+
+$evidence
