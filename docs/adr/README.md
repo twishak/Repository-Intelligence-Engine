@@ -22,6 +22,7 @@ a connected narrative rather than a pile of isolated documents.
 | [0011](0011-dataclasses-over-pydantic-for-domain-models.md) | Dataclasses for Internal Domain Models, Pydantic Reserved for the API Boundary | Accepted |
 | [0012](0012-deterministic-non-llm-answer-validation.md) | Deterministic, Non-LLM Answer Validation over Self-Correcting Re-Prompting | Accepted |
 | [0013](0013-external-versioned-prompt-templates.md) | External, Versioned Prompt Templates | Accepted |
+| [0014](0014-independent-composable-analyzers.md) | Independent, Composable Analyzers over Monolithic Repository Scanning | Accepted |
 
 ## Adding a new ADR
 
