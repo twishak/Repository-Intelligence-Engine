@@ -206,3 +206,7 @@ To run the REST API (interactive docs at `/docs`, OpenAPI schema at `/openapi.js
 ```
 python scripts/serve_api.py
 ```
+
+## License
+
+Apache License 2.0 - see [LICENSE](LICENSE) and [NOTICE](NOTICE).

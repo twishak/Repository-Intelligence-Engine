@@ -1,7 +1,12 @@
 [project]
 name = "codebase-agent"
 version = "0.1.0"
+description = "An agent that ingests a codebase and answers grounded, citation-backed questions about it, with deterministic repository analysis and a REST API/CLI."
+readme = "README.md"
 requires-python = ">=3.10"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "Twisha Khurana" }]
 
 [tool.setuptools.packages.find]
 where = ["src"]
