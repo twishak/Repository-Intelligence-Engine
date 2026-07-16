@@ -1,0 +1,40 @@
+# Orchestration
+langgraph>=0.2
+
+# LLM (Groq)
+groq
+
+# Vector store
+chromadb
+
+# Embeddings
+sentence-transformers
+# jina-embeddings-v2-base-code ships custom remote code written against an
+# old transformers API (references transformers.pytorch_utils.find_pruneable_heads_and_indices,
+# removed in transformers>=5). Pin to the last 4.x release or model loading breaks.
+transformers==4.57.6
+# torch: install separately with the CUDA-matched wheel for your GPU,
+# see https://pytorch.org/get-started/locally/ - do not rely on the
+# default PyPI wheel, it may resolve to CPU-only.
+
+# Repo ingestion
+gitpython
+
+# Graph-based reasoning (symbol/import/call graph)
+networkx
+
+# Config / utilities
+python-dotenv
+pydantic-settings
+tqdm
+rich
+
+# Presentation layer (CLI + REST API)
+typer
+fastapi
+uvicorn[standard]
+
+# Dev / testing
+pytest
+ruff
+httpx
