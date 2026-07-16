@@ -149,13 +149,22 @@ layer, not a replacement.
 ## Setup
 
 ```
-pip install -r requirements.txt
+pip install -r requirements.lock   # exact, tested versions (recommended)
+pip install -e .
 cp .env.example .env   # then fill in GROQ_API_KEY
 ```
 
+Use `requirements.txt` instead of `requirements.lock` if you want pip to
+resolve fresh versions of the direct dependencies rather than the exact
+pinned set CI runs against.
+
 Install `torch` separately with the CUDA build matching your GPU driver
-before installing `sentence-transformers`'s other dependencies, see
-https://pytorch.org/get-started/locally/.
+*before* the command above if you want GPU-accelerated embeddings -
+otherwise a CPU-only build installs automatically as a dependency of
+`sentence-transformers`. See https://pytorch.org/get-started/locally/.
+
+`pip install -e .` also registers a `codebase-agent` command (see Usage
+below) as an alternative to invoking `scripts/cli.py` directly.
 
 ## Usage
 
@@ -191,7 +200,8 @@ python scripts/analyze_repo.py <repo-name>
 python scripts/analyze_repo.py <repo-name> --category dead_code
 ```
 
-The new CLI (Typer-based, calls the Application Services) wraps all of the above in one entry point:
+The new CLI (Typer-based, calls the Application Services) wraps all of the above in one entry point.
+Use `codebase-agent` (installed by `pip install -e .`) or `python scripts/cli.py` interchangeably:
 
 ```
 python scripts/cli.py ingest /path/to/repo
