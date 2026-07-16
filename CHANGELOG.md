@@ -28,7 +28,7 @@ Everything below predates the first tagged release - it will become the `1.0.0` 
 - A real, runnable example repo at [`examples/demo`](examples/demo) for the README Quick Start.
 - Apache-2.0 [LICENSE](LICENSE), GitHub Actions CI, and a locked dependency set (`requirements.lock`) for
   reproducible installs.
-- [`CONTRIBUTING.md`](CONTRIBUTING.md).
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`SECURITY.md`](SECURITY.md).
 
 ### Fixed
 
