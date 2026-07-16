@@ -23,6 +23,11 @@ a connected narrative rather than a pile of isolated documents.
 | [0012](0012-deterministic-non-llm-answer-validation.md) | Deterministic, Non-LLM Answer Validation over Self-Correcting Re-Prompting | Accepted |
 | [0013](0013-external-versioned-prompt-templates.md) | External, Versioned Prompt Templates | Accepted |
 | [0014](0014-independent-composable-analyzers.md) | Independent, Composable Analyzers over Monolithic Repository Scanning | Accepted |
+| [0015](0015-application-service-layer-as-the-sole-boundary.md) | Application Service Layer as the Sole Boundary for CLI and API | Accepted |
+| [0016](0016-pydantic-at-the-api-boundary-only.md) | Pydantic at the API Boundary Only, Domain Dataclasses Through the Service Layer | Accepted |
+| [0017](0017-application-level-exception-translation.md) | Application-Level Exception Translation at the Service Boundary | Accepted |
+| [0018](0018-shared-singletons-via-app-state.md) | Shared Long-Lived Singletons via app.state, Services Rebuilt per Request | Accepted |
+| [0019](0019-lightweight-request-correlation.md) | Lightweight Request Correlation via Context-Local Request IDs, Not Distributed Tracing | Accepted |
 
 ## Adding a new ADR
 
