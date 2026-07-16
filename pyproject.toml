@@ -1,7 +1,7 @@
 [project]
 name = "codebase-agent"
 version = "0.1.0"
-description = "An agent that ingests a codebase and answers grounded, citation-backed questions about it, with deterministic repository analysis and a REST API/CLI."
+description = "A software intelligence platform: static analysis, grounded citation-backed Q&A, and deterministic repository analysis over a codebase, via a REST API and CLI."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"

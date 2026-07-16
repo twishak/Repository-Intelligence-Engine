@@ -16,7 +16,7 @@ from codebase_agent.knowledge import RepoMetadata
 from codebase_agent.reasoning import ReasoningResult
 
 app = typer.Typer(
-    help="Codebase Understanding Agent - ingest a repo, then ask questions or run analysis."
+    help="Repository Intelligence Engine - ingest a repo, then ask questions or run analysis."
 )
 console = Console()
 

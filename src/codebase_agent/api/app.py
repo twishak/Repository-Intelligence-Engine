@@ -61,7 +61,7 @@ def create_app() -> FastAPI:
     configure_api_logging()
 
     app = FastAPI(
-        title="Codebase Understanding Agent",
+        title="Repository Intelligence Engine",
         version=__version__,
         lifespan=_lifespan,
     )
