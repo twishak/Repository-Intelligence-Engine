@@ -74,7 +74,7 @@ def _function_chunk(
     end_line = node.end_lineno
     body = _slice_lines(source.content, start_line, end_line)
     return CodeChunk(
-        id=f"{source.path}::{chunk_type}::{qualified_name}",
+        id=_chunk_id(source, chunk_type, qualified_name, start_line, end_line),
         file_path=source.path,
         chunk_type=chunk_type,
         qualified_name=qualified_name,
@@ -102,7 +102,7 @@ def _class_skeleton_chunk(
     end_line = node.end_lineno
     skeleton = _build_class_skeleton_text(node)
     return CodeChunk(
-        id=f"{source.path}::class_skeleton::{qualified_name}",
+        id=_chunk_id(source, "class_skeleton", qualified_name, start_line, end_line),
         file_path=source.path,
         chunk_type="class_skeleton",
         qualified_name=qualified_name,
@@ -178,6 +178,22 @@ def _signature_text(node: _FunctionNode) -> str:
         return ast.unparse(node)
     finally:
         node.body = original_body
+
+
+def _chunk_id(
+    source: SourceFile,
+    chunk_type: str,
+    qualified_name: str,
+    start_line: int,
+    end_line: int,
+) -> str:
+    # Two distinct AST nodes can share a qualified name - most commonly
+    # @typing.overload stub signatures alongside the real implementation, but
+    # also e.g. a class or function conditionally redefined at module level.
+    # Each `def`/`class` occupies a distinct line span, so including it makes
+    # the ID identify the specific syntax node rather than just its name,
+    # keeping every chunk's content (Chroma requires unique IDs on insert).
+    return f"{source.path}::{chunk_type}::{qualified_name}::{start_line}-{end_line}"
 
 
 def _start_line(node: ast.AST) -> int:

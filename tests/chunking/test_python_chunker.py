@@ -89,3 +89,74 @@ def test_module_level_residual_excludes_function_and_class_bodies():
 def test_syntax_error_returns_no_chunks():
     chunks = chunk_source_file(_source("def broken(:\n"))
     assert chunks == []
+
+
+def test_function_chunk_id_includes_line_span():
+    content = "def foo():\n    return 1\n"
+    chunks = chunk_source_file(_source(content, path="a.py"))
+
+    chunk = next(c for c in chunks if c.chunk_type == "function")
+    assert chunk.id == f"a.py::function::foo::{chunk.start_line}-{chunk.end_line}"
+
+
+def test_module_level_overloads_get_unique_chunk_ids_and_all_ingest():
+    # Regression test: @overload stubs plus the real implementation used to
+    # collide on id (path::function::name), which crashed ingestion with a
+    # DuplicateIDError on insert into Chroma. All three defs must now be kept,
+    # each with a distinct id.
+    content = (
+        "from typing import overload\n\n"
+        "@overload\n"
+        "def parse(value: str) -> str: ...\n\n"
+        "@overload\n"
+        "def parse(value: int) -> int: ...\n\n"
+        "def parse(value):\n"
+        "    return value\n"
+    )
+    chunks = chunk_source_file(_source(content))
+
+    func_chunks = [c for c in chunks if c.chunk_type == "function"]
+    assert len(func_chunks) == 3
+    assert len({c.id for c in func_chunks}) == 3
+    assert all(c.qualified_name == "parse" for c in func_chunks)
+
+
+def test_class_method_overloads_get_unique_chunk_ids_and_all_ingest():
+    content = (
+        "from typing import overload\n\n"
+        "class Parser:\n"
+        "    @overload\n"
+        "    def parse(self, value: str) -> str: ...\n\n"
+        "    @overload\n"
+        "    def parse(self, value: int) -> int: ...\n\n"
+        "    def parse(self, value):\n"
+        "        return value\n"
+    )
+    chunks = chunk_source_file(_source(content))
+
+    method_chunks = [c for c in chunks if c.chunk_type == "method"]
+    assert len(method_chunks) == 3
+    assert len({c.id for c in method_chunks}) == 3
+    assert all(c.qualified_name == "Parser.parse" for c in method_chunks)
+
+
+def test_all_chunk_ids_in_a_file_are_unique():
+    # The property that actually matters for Chroma insertion: no two chunks
+    # anywhere in a file's output - functions, methods, class skeletons,
+    # module - collide on id, even with overloads mixed in.
+    content = (
+        "from typing import overload\n\n"
+        "@overload\n"
+        "def parse(value: str) -> str: ...\n"
+        "def parse(value):\n"
+        "    return value\n\n"
+        "class Parser:\n"
+        "    @overload\n"
+        "    def parse(self, value: str) -> str: ...\n"
+        "    def parse(self, value):\n"
+        "        return value\n"
+    )
+    chunks = chunk_source_file(_source(content))
+
+    ids = [c.id for c in chunks]
+    assert len(ids) == len(set(ids))
