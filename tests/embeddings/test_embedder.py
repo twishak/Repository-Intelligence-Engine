@@ -72,7 +72,8 @@ def test_embed_warns_when_truncating(caplog):
         embedder.embed(["x" * 50])
 
     assert any(
-        "exceeds embedding model max" in record.message for record in caplog.records
+        "exceeded the embedding model's max length" in record.message
+        for record in caplog.records
     )
 
 
@@ -83,6 +84,32 @@ def test_embed_does_not_warn_for_normal_sized_text(caplog):
         embedder.embed(["x" * 5])
 
     assert caplog.records == []
+
+
+def test_embed_emits_one_aggregate_warning_not_one_per_truncated_chunk(caplog):
+    # Regression test: a repo with many oversized chunks used to log one
+    # multi-line WARNING per chunk, which drowned out the batch progress bar
+    # and any other real signal. There should be exactly one summary WARNING
+    # regardless of how many chunks were truncated.
+    embedder, _ = _embedder_with_fake_model(max_seq_length=10)
+
+    with caplog.at_level("WARNING"):
+        embedder.embed(["x" * 50, "y" * 80, "z" * 30])
+
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 1
+    assert "3 of 3 chunks" in warnings[0].message
+    assert "largest was 80 tokens" in warnings[0].message
+
+
+def test_embed_logs_per_chunk_truncation_detail_at_info_not_warning(caplog):
+    embedder, _ = _embedder_with_fake_model(max_seq_length=10)
+
+    with caplog.at_level("INFO"):
+        embedder.embed(["x" * 50])
+
+    info_records = [r for r in caplog.records if r.levelname == "INFO"]
+    assert any("exceeds embedding model max" in r.message for r in info_records)
 
 
 def test_embed_groups_batches_by_token_length_not_original_order():

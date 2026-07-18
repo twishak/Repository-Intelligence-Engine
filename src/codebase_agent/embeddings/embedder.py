@@ -1,6 +1,6 @@
 import logging
 
-from tqdm.auto import trange
+from tqdm.auto import tqdm, trange
 
 from codebase_agent.config import settings
 
@@ -105,20 +105,40 @@ class CodeEmbedder:
 
         result_texts = []
         result_lengths = []
-        for text in texts:
+        truncated_count = 0
+        largest_length = 0
+        show_progress_bar = len(texts) > self._batch_size
+        for text in tqdm(texts, desc="Tokenizing", disable=not show_progress_bar):
             token_ids = tokenizer.encode(text, add_special_tokens=True)
             length = len(token_ids)
             if length > max_tokens:
-                logger.warning(
-                    "Chunk (%d tokens) exceeds embedding model max (%d) and will be truncated: %.80s",
+                # One INFO line per chunk for anyone digging in with -v; a large
+                # repo can have dozens of these, which as individual WARNINGs
+                # buried any real signal (and, printed one at a time, visually
+                # crowded out the tqdm bars above and below this loop) - so the
+                # user-facing signal is the single aggregate warning below instead.
+                logger.info(
+                    "Chunk (%d tokens) exceeds embedding model max (%d) and will be truncated",
                     length,
                     max_tokens,
-                    text,
                 )
+                truncated_count += 1
+                largest_length = max(largest_length, length)
                 text = tokenizer.decode(
                     token_ids[:max_tokens], skip_special_tokens=True
                 )
                 length = max_tokens
             result_texts.append(text)
             result_lengths.append(length)
+
+        if truncated_count:
+            logger.warning(
+                "%d of %d chunks exceeded the embedding model's max length (%d tokens) "
+                "and were truncated; largest was %d tokens",
+                truncated_count,
+                len(texts),
+                max_tokens,
+                largest_length,
+            )
+
         return result_texts, result_lengths
