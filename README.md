@@ -1,58 +1,41 @@
 # Repository Intelligence Engine
 
-*(working name - the public repo name isn't finalized yet)*
+*(working name — package is `codebase-agent`; the public repo name isn't finalized yet)*
 
-A software intelligence platform for codebases: static analysis (symbol tables, call/import/inheritance graphs),
-grounded and citation-backed question answering, and deterministic repository analysis (dead code, circular
-dependencies, complexity, architecture), exposed through a REST API and a CLI.
+![License](https://img.shields.io/badge/license-Apache--2.0-blue)
+![Python](https://img.shields.io/badge/python-3.10%2B-blue)
+![Tests](https://img.shields.io/badge/tests-262%20passing-brightgreen)
 
-Ask it things like *"Where is X handled?"*, *"Explain what this function does"*, or *"What would break if I changed
-Y?"* and get an answer grounded in retrieved evidence, with citations back to exact file/line ranges - not a
-hallucinated guess.
+**Ask questions about a codebase in plain English and get answers with exact file/line citations — not guesses.**
 
-- **Static analysis:** `ast`-based symbol table plus call/import/class-hierarchy graphs, independent of any LLM.
-- **Grounded Q&A:** evidence is retrieved first, then reasoned over; every claim is cited or the answer says so.
-- **Deterministic analysis:** dead code, circular dependencies, complexity, TODOs, and architecture findings - no
-  LLM involved, same input always produces the same findings.
-- **REST API and CLI:** both are thin wrappers over the same Application Service layer - no logic duplicated
-  between them.
+It combines deterministic static analysis (symbol tables, call/import/inheritance graphs) with semantic search and
+an LLM reasoning step, then separately runs five LLM-free analyzers (dead code, circular dependencies, complexity,
+TODOs, architecture) over the same repository. Everything is available through both a CLI and a REST API.
 
-**Stack:** static analysis via `ast` + `networkx` · orchestration via LangGraph (deterministic pipelines, not an
-agentic loop - see [ADR-0009](docs/adr/0009-deterministic-single-pass-orchestration.md)) · LLM via the Groq API ·
-vector store via local, embedded Chroma · embeddings via local `sentence-transformers` · API via FastAPI · CLI via
-Typer.
+---
 
-See [`docs/architecture.md`](docs/architecture.md) for how the layers fit together, and
-[`docs/adr/`](docs/adr/README.md) for the reasoning behind each design decision.
+## Why this project exists
 
-## Quick Start
+**Understanding a codebase you didn't write is slow.** You either read it file by file, or you `grep` for a name
+and hope you land in the right place.
 
-Requires Python 3.10+ and a [Groq API key](https://console.groq.com/keys).
+**`grep` finds text, not meaning.** It can't tell you what calls a function, what a function's callers actually
+depend on, or which class a method really belongs to once inheritance is involved. It has no idea what "this" or
+"the thing that validates requests" refers to.
 
-```bash
-git clone <this-repo>
-cd <this-repo>
+**LLMs are fluent, but they haven't seen your repo.** Ask a general-purpose model about your codebase and it will
+answer confidently — sometimes correctly, sometimes by pattern-matching to a *different* codebase it saw during
+training. That's a hallucination that reads exactly like a real answer.
 
-pip install -r requirements.lock   # exact, tested versions (use requirements.txt for a fresh resolve)
-pip install -e .                   # registers the `codebase-agent` command
+**The fix isn't "add an LLM" — it's grounding the LLM in facts the codebase itself provides.** This project builds
+two independent, deterministic sources of truth first — an `ast`-based symbol/call/import graph, and semantic
+search over embedded code chunks — and only then lets an LLM reason *over retrieved evidence*, citing exactly which
+evidence it used. If the evidence doesn't support an answer, the system says so instead of guessing.
 
-cp .env.example .env               # then fill in GROQ_API_KEY
-```
+## Demo
 
-Install `torch` separately first with the CUDA build matching your GPU driver if you want GPU-accelerated
-embeddings - see https://pytorch.org/get-started/locally/. Otherwise a CPU-only build installs automatically as a
-dependency of `sentence-transformers`. If ingestion hits a CUDA out-of-memory error, lower `EMBEDDING_BATCH_SIZE`
-in `.env` (see `.env.example`); if that's still not enough (a single very large chunk can be memory-heavy on its
-own), set `EMBEDDING_DEVICE=cpu`.
-
-```bash
-codebase-agent ingest <path-or-git-url>
-codebase-agent ask <repo-name> "<question>"
-codebase-agent analyze <repo-name>
-```
-
-Example session, ingesting the tiny demo repo that ships in [`examples/demo`](examples/demo) (a 3-file in-memory
-task manager with one genuinely unused function) - run this yourself right after cloning, no external repo needed:
+Ingest a repository, then ask it a question. This is real, unedited output from the tiny example repo that ships
+in [`examples/demo`](examples/demo) — run it yourself right after cloning, no external repo or API mocking needed:
 
 ```text
 $ codebase-agent ingest examples/demo
@@ -80,34 +63,258 @@ Findings by category
   dead_code: 5
 ```
 
-`reporting.summarize_counts` (a function nothing else in the demo repo calls) is correctly flagged under
-`dead_code` - all of the above is real, unedited tool output.
+`reporting.summarize_counts` — a function nothing else in the demo repo calls — is correctly flagged under
+`dead_code`. Nothing above is edited or cherry-picked.
 
-Run the REST API instead of the CLI:
+The same three operations are available over HTTP:
+
+```text
+$ curl -X POST http://127.0.0.1:8000/v1/repositories -d '{"source": "examples/demo"}'
+$ curl -X POST http://127.0.0.1:8000/v1/repositories/demo/questions -d '{"question": "What does complete_task do?"}'
+$ curl http://127.0.0.1:8000/v1/repositories/demo/insights
+```
+
+*(CLI and Swagger UI screenshots / a recorded GIF belong here — not yet captured.)*
+
+## Features
+
+**Repository Intelligence**
+- `ast`-based symbol table for every function, method, and class in a repo
+- Call, import, and class-hierarchy graphs (`networkx`), built independently of any LLM
+- Best-effort symbol resolution that keeps unresolved edges instead of silently dropping them
+
+**Question Answering**
+- Natural-language questions, answered from retrieved evidence — not the model's training data
+- Every claim is either cited back to an exact file/line range, or the answer says the evidence wasn't enough
+- Confidence level, assumptions, and known limitations returned as structured fields, not buried in prose
+- Optional grounding hints (`active_file`, `active_symbol`) for IDE-style "what does *this* do" questions
+
+**Repository Insights** (deterministic, no LLM involved)
+- Dead code
+- Circular dependencies
+- Complexity hotspots
+- TODO / FIXME tracking
+- Architecture findings (e.g. layering violations)
+
+**Interfaces**
+- CLI (`codebase-agent ingest / ask / analyze / list / info`)
+- REST API (FastAPI) with interactive Swagger docs at `/docs`
+- Both are thin wrappers over the same Application Service layer — zero logic duplicated between them
+
+**Engineering Quality**
+- 262 automated tests, run in CI on Python 3.10 and 3.12
+- Strictly layered architecture, enforced by convention and reviewed in every PR (see [Contributing](CONTRIBUTING.md))
+- 19 [Architecture Decision Records](docs/adr/README.md) documenting *why*, not just *what*
+- Locked dependency set (`requirements.lock`) for reproducible installs
+- Apache-2.0 licensed
+
+## Architecture Overview
+
+```mermaid
+flowchart TB
+    subgraph Presentation["CLI + REST API"]
+        direction LR
+        CLI["CLI"]
+        API["REST API"]
+    end
+    AS["Application Services"]
+    subgraph Reasoning["Reasoning & Insights"]
+        direction LR
+        RE["Reasoning Engine"]
+        INS["Repository Insights"]
+    end
+    KB["Knowledge Layer"]
+    subgraph Foundation["Foundation"]
+        direction LR
+        RI["Repository Intelligence"]
+        ING["Ingestion + Embeddings"]
+    end
+
+    Presentation --> AS --> Reasoning --> KB --> Foundation
+```
+
+- **CLI / REST API** — the only user-facing surfaces; render the same data two different ways.
+- **Application Services** — the single boundary the interfaces are allowed to call into.
+- **Reasoning Engine / Repository Insights** — turn retrieved evidence into a cited answer, or run deterministic
+  analyzers; neither one talks to the other.
+- **Knowledge Layer** — the one access point everything above depends on for symbols, graphs, and search.
+- **Repository Intelligence / Ingestion** — the two independent pipelines that build the Knowledge Layer's data:
+  static analysis, and chunk-embed-store.
+
+Each layer only depends on the layer directly below it. Full diagrams and the reasoning behind every boundary:
+[`docs/architecture.md`](docs/architecture.md).
+
+## Technology Stack
+
+| Component | Technology | Purpose |
+|---|---|---|
+| Static analysis | Python `ast` + `networkx` | Symbol table and call/import/inheritance graphs |
+| Orchestration | LangGraph | Deterministic single-pass pipeline (not an agentic loop — [ADR-0009](docs/adr/0009-deterministic-single-pass-orchestration.md)) |
+| LLM | Groq API | Retrieval planning and grounded reasoning |
+| Vector store | ChromaDB | Local, embedded semantic search index |
+| Embeddings | `sentence-transformers` | Local, code-aware embedding model |
+| REST API | FastAPI + Uvicorn | HTTP interface with auto-generated Swagger/OpenAPI docs |
+| CLI | Typer + Rich | Terminal interface |
+| Config | `pydantic-settings` + `python-dotenv` | `.env`-driven configuration |
+| Testing | pytest | 262 tests, unit + integration markers |
+| Lint / format | ruff | Enforced in CI |
+
+## Quick Start
+
+Requires Python 3.10+ and a [Groq API key](https://console.groq.com/keys).
+
+```bash
+git clone <this-repo>
+cd <this-repo>
+
+pip install -r requirements.lock   # exact, tested versions
+pip install -e .                   # registers the `codebase-agent` command
+
+cp .env.example .env               # then fill in GROQ_API_KEY
+```
+
+Install `torch` separately first with the CUDA build matching your GPU if you want GPU-accelerated embeddings
+([instructions](https://pytorch.org/get-started/locally/)) — otherwise a CPU-only build installs automatically.
+
+```bash
+codebase-agent ingest examples/demo
+codebase-agent ask demo "What does complete_task do?"
+codebase-agent analyze demo
+```
+
+That's the whole loop — see [Demo](#demo) above for real output. Troubleshooting (CUDA OOM, batch size tuning)
+lives in [`.env.example`](.env.example), not here.
+
+## Usage
+
+### CLI
+
+```bash
+codebase-agent ingest <path-or-git-url>          # ingest a local path or git URL
+codebase-agent list                              # list ingested repositories
+codebase-agent info <repo-name>                  # show metadata for one
+codebase-agent ask <repo-name> "<question>"       # grounded, cited Q&A
+codebase-agent ask <repo-name> "<question>" \
+    --active-file src/app.py --active-symbol App  # optional IDE-style grounding
+codebase-agent analyze <repo-name>                # run all 5 insight analyzers
+codebase-agent analyze <repo-name> --category dead_code
+```
+
+### REST API
 
 ```bash
 python scripts/serve_api.py
 ```
 
-Then open `http://127.0.0.1:8000/docs` for interactive Swagger docs, or `/openapi.json` for the raw schema.
+Open `http://127.0.0.1:8000/docs` for interactive Swagger docs, or `/openapi.json` for the raw schema.
 
-*(A screenshot of the Swagger UI belongs here - not yet captured.)*
+```bash
+# Ingest
+curl -X POST http://127.0.0.1:8000/v1/repositories \
+  -H "Content-Type: application/json" \
+  -d '{"source": "https://github.com/psf/requests.git"}'
 
-## How it works
+# Ask a grounded question
+curl -X POST http://127.0.0.1:8000/v1/repositories/requests/questions \
+  -H "Content-Type: application/json" \
+  -d '{"question": "Where is authentication handled?"}'
+```
 
-Six layers, each depending only on the one below it through a narrow interface:
+```json
+{
+  "answer": "Authentication is handled by the auth module's AuthBase subclasses... [1]",
+  "confidence": "high",
+  "evidence_sufficient": true,
+  "citations": [
+    {"qualified_name": "requests.auth.HTTPBasicAuth", "file_path": "requests/auth.py", "start_line": 96, "end_line": 105}
+  ]
+}
+```
 
-**Repository Intelligence** → **Knowledge Layer** → **Reasoning Retrieval Engine** → **Reasoning Engine** /
-**Repository Insights** → **Presentation Layer** (CLI + REST API)
+(Response shown trimmed to the fields that matter here — the real response also includes `assumptions`,
+`limitations`, `validation_issues`, `model`, and `prompt_version`.)
 
-Full explanation, with diagrams, in [`docs/architecture.md`](docs/architecture.md). The short version: static
-analysis and embeddings both feed a single `KnowledgeBase` access boundary; retrieval gathers evidence but never
-writes prose; reasoning turns evidence into a cited answer and never the reverse; insights runs deterministic,
-LLM-free analyzers; and the CLI/API only ever call into an Application Service layer, never the lower layers
-directly.
+## Repository Analysis
 
-A separate legacy pipeline (`scripts/ask.py`, `codebase_agent.graph`) predates this design and is kept in place,
-untouched, rather than deleted - see the Legacy pipeline section of the architecture doc.
+Five analyzers run over a `KnowledgeBase`, independently of each other and without calling an LLM:
+
+| Category | What it finds |
+|---|---|
+| Dead code | Symbols with no resolved callers anywhere in the repo |
+| Circular dependencies | Import cycles between modules |
+| Complexity | Functions/methods that are unusually large or branchy |
+| TODO / FIXME | Outstanding markers left in comments |
+| Architecture | Structural findings, e.g. layering violations |
+
+They're deterministic on purpose: the same repository always produces the same findings, so results are
+reproducible, diffable across commits, and safe to run in CI — none of which is true of an LLM's opinion.
+
+## Question Answering
+
+```mermaid
+flowchart LR
+    R["Repository"] --> SA["Static Analysis"]
+    R --> EM["Embeddings"]
+    SA --> KB["Knowledge Base"]
+    EM --> KB
+    KB --> RET["Retriever"]
+    RET --> RE["Reasoning"]
+    RE --> A["Grounded Answer"]
+```
+
+A question first goes to a planner, which decides *how* to answer it — symbol lookup, semantic search, call-graph
+walk, import-graph walk, or class hierarchy, possibly several of these for compound questions like impact analysis.
+Each step retrieves evidence from the Knowledge Base; nothing at this stage writes prose. Only once evidence is
+gathered does the Reasoning Engine make a single forced tool call to the LLM over all of it — citations are
+resolved back to exact file/line locations in Python, not transcribed by the model, so citation accuracy doesn't
+depend on the model getting numbers right. A separate, deterministic (non-LLM) validation pass then flags things
+like citation indices that don't exist or a "sufficient evidence" claim with none supplied.
+
+## Project Highlights
+
+- **262 automated tests**, run against every push/PR in CI (Python 3.10 and 3.12)
+- **Strictly layered architecture** — six layers, each depending only on the one directly below it
+- **19 Architecture Decision Records** — the reasoning behind every non-obvious design choice, not just the code
+- **REST API and CLI**, both built on one Application Service layer with zero duplicated logic
+- **AST-based static analysis** independent of any LLM — symbol table, call/import/inheritance graphs
+- **ChromaDB** for local, embedded semantic search — no external vector database to run
+- **LangGraph** used as a deterministic single-pass pipeline, not an unbounded agentic loop
+- **CI pipeline** enforcing lint, format, and the full non-integration test suite
+- **Apache-2.0** licensed
+
+## Repository Structure
+
+```
+src/codebase_agent/
+  intelligence/   AST-based static analysis: symbol table, call/import/inheritance graphs
+  ingestion/      Discovers and loads source files from a repo checkout
+  chunking/       Splits source files into embeddable chunks
+  embeddings/     Embeds chunks with a local sentence-transformers model
+  storage/        Persists chunk vectors in ChromaDB
+  knowledge/      KnowledgeBase — the single access boundary everything above depends on
+  retrieval/      Plans and executes evidence retrieval for a question
+  reasoning/      Turns retrieved evidence into a citation-backed, confidence-scored answer
+  insights/       Five deterministic, LLM-free repository analyzers
+  application/    Application Services — the only thing the CLI/API call into
+  api/            REST API (FastAPI)
+  cli/            CLI (Typer)
+  llm/ graph/ interface/   Legacy pipeline, superseded but kept in place untouched
+
+docs/             Architecture overview and 19 ADRs
+examples/demo/    A tiny real repo used by the Quick Start and demo above
+scripts/          Entry points: cli.py, serve_api.py, ingest_repo.py, analyze_repo.py
+tests/            262 tests, mirroring the src/codebase_agent layout
+data/             Gitignored local artifacts: ingested repos, graph/knowledge JSON, Chroma store
+```
+
+## Documentation
+
+- [Architecture](docs/architecture.md) — how the layers fit together
+- [Architecture Decision Records](docs/adr/README.md) — why each decision was made
+- API reference — interactive Swagger UI at `/docs` once `scripts/serve_api.py` is running
+- [Contributing](CONTRIBUTING.md)
+- [Security Policy](SECURITY.md)
+- [Changelog](CHANGELOG.md)
 
 ## Development
 
@@ -115,14 +322,34 @@ untouched, rather than deleted - see the Legacy pipeline section of the architec
 pip install -r requirements.lock
 pip install -e .
 
-ruff check .            # lint
-ruff format --check .   # format check
-pytest -m "not integration"   # full suite, no real API/model calls
-pytest -m integration         # slower tests hitting the real Groq API and embedding model
+ruff check .                    # lint
+ruff format --check .           # format check
+pytest -m "not integration"     # full suite, no real API/model calls
+pytest -m integration           # slower tests hitting the real Groq API and embedding model
 ```
 
-CI (`.github/workflows/ci.yml`) runs lint, format check, and the non-integration test suite on every push/PR.
+CI (`.github/workflows/ci.yml`) runs lint, format check, and the non-integration suite on every push/PR, on
+Python 3.10 and 3.12. All three must pass before a PR is merged.
+
+## Roadmap
+
+**Completed**
+- Layered architecture: Repository Intelligence → Knowledge Layer → Retrieval → Reasoning / Insights → Application → CLI/API
+- Grounded, citation-backed Q&A with confidence scoring and deterministic answer validation
+- Five deterministic repository analyzers with a unified `RepositoryReport`
+- REST API and CLI on a shared Application Service layer
+- 19 ADRs, architecture doc, CI, locked dependency set, Apache-2.0 license
+
+**Planned**
+- LLM-generated repository summary (the `RepositoryReport.summary` field already exists, reserved for this)
+- Splitting oversized `class_skeleton` chunks (very large classes) into multiple logical chunks for better retrieval
+- Finalizing the public repository/package name
+
+**Future ideas**
+- Multi-language support beyond Python — the static-analysis output shape was deliberately kept language-agnostic
+  for this ([ADR-0002](docs/adr/0002-python-first-before-multi-language-expansion.md))
+- Runtime heuristics deliberately deferred so far, such as adaptive embedding batch sizing and automatic OOM recovery
 
 ## License
 
-Apache License 2.0 - see [LICENSE](LICENSE) and [NOTICE](NOTICE).
+Apache License 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
