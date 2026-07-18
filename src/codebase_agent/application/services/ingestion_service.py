@@ -5,7 +5,11 @@ from datetime import datetime, timezone
 from codebase_agent.application.errors import IngestionFailedError
 from codebase_agent.chunking import chunk_source_files
 from codebase_agent.embeddings import CodeEmbedder
-from codebase_agent.ingestion import discover_files, get_repo_path
+from codebase_agent.ingestion import (
+    discover_files,
+    get_repo_path,
+    git_index_has_zero_tracked_files,
+)
 from codebase_agent.intelligence import (
     RepoIntelligenceStore,
     build_graph,
@@ -62,6 +66,14 @@ class IngestionService:
 
         sources = discover_files(repo_path)
         if not sources:
+            if git_index_has_zero_tracked_files(repo_path):
+                raise IngestionFailedError(
+                    source,
+                    "git reports zero tracked files in this repository (the index "
+                    "may be empty, corrupt, or reflect an incomplete checkout), and "
+                    "no matching source files were found by walking the filesystem "
+                    "either",
+                )
             raise IngestionFailedError(source, "no in-scope files found")
         logger.info("Discovered %d file(s)", len(sources))
 

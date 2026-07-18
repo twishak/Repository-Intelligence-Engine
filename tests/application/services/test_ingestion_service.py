@@ -1,3 +1,4 @@
+import subprocess
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -77,5 +78,20 @@ def test_raises_ingestion_failed_when_no_in_scope_files(tmp_path: Path):
 
     service = _service()
 
-    with pytest.raises(IngestionFailedError):
+    with pytest.raises(IngestionFailedError, match="no in-scope files found"):
+        service.ingest_repository(str(repo_dir))
+
+
+def test_raises_distinct_error_when_git_index_is_unusable(tmp_path: Path):
+    # A repo dir that IS a git repo but whose index tracks nothing (e.g. a
+    # clone whose checkout failed partway) should get an error message that
+    # points at the git index specifically, not the generic "empty repo"
+    # message - the two situations need different fixes on the user's end.
+    repo_dir = tmp_path / "broken_repo"
+    _write(repo_dir / "README.md", "no python here\n")
+    subprocess.run(["git", "init", "-q"], cwd=repo_dir, check=True)
+
+    service = _service()
+
+    with pytest.raises(IngestionFailedError, match="git reports zero tracked files"):
         service.ingest_repository(str(repo_dir))

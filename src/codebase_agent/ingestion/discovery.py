@@ -1,8 +1,11 @@
+import logging
 import subprocess
 from pathlib import Path
 
 from codebase_agent.config import settings
 from codebase_agent.ingestion.models import SourceFile
+
+logger = logging.getLogger(__name__)
 
 _IGNORED_DIRS = {
     ".git",
@@ -21,7 +24,14 @@ _IGNORED_DIRS = {
 def discover_files(repo_path: Path) -> list[SourceFile]:
     """Find in-scope source files under `repo_path` and read their contents."""
     rel_paths = _list_git_tracked_files(repo_path)
-    if rel_paths is None:
+    if rel_paths == []:
+        logger.info(
+            "git ls-files reported zero tracked files under %s; falling back to a "
+            "filesystem walk (the git index may be empty, corrupt, or reflect an "
+            "incomplete checkout)",
+            repo_path,
+        )
+    if not rel_paths:
         rel_paths = _walk_files(repo_path)
 
     sources = []
@@ -32,6 +42,17 @@ def discover_files(repo_path: Path) -> list[SourceFile]:
         if source is not None:
             sources.append(source)
     return sources
+
+
+def git_index_has_zero_tracked_files(repo_path: Path) -> bool:
+    """True if `repo_path` is a git repo whose index tracks nothing.
+
+    Distinguishes "not a git repo" (git ls-files fails) from "is a git repo,
+    but git reports zero tracked files" - the latter can indicate a corrupt
+    index or a clone whose checkout step failed partway, rather than a
+    genuinely empty or non-Python repository.
+    """
+    return _list_git_tracked_files(repo_path) == []
 
 
 def _list_git_tracked_files(repo_path: Path) -> list[str] | None:
