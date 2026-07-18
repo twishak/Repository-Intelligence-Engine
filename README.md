@@ -1,65 +1,29 @@
 # Repository Intelligence Engine
 
+*Python package & CLI: `codebase-agent`*
+
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 ![Tests](https://img.shields.io/badge/tests-262%20passing-brightgreen)
 ![Status](https://img.shields.io/badge/status-pre--1.0-orange)
 
-**Ask questions about a codebase in plain English and get answers with exact file/line citations — not guesses.**
+**Combining deterministic static analysis, semantic search, and evidence-grounded AI reasoning.**
 
-It combines deterministic static analysis (symbol tables, call/import/inheritance graphs) with semantic search and
-an LLM reasoning step, then separately runs five LLM-free analyzers (dead code, circular dependencies, complexity,
-TODOs, architecture) over the same repository. Everything is available through both a CLI and a REST API.
+Ask questions about a codebase in plain English and get answers grounded in retrieved evidence — exact file/line
+citations, not guesses. It also runs five LLM-free analyzers (dead code, circular dependencies, complexity, TODOs,
+architecture) over the same repository. Everything is available through both a CLI and a REST API.
 
 > [!NOTE]
 > Pre-1.0 and Python-only today — multi-language support is deferred by design, not forgotten (see
-> [Roadmap](#roadmap)). Package name is `codebase-agent`.
-
-## Demo
-
-Ingest a repository, then ask it a question. This is real, unedited output from the tiny example repo that ships
-in [`examples/demo`](examples/demo) — run it yourself right after cloning, no external repo or API mocking needed:
-
-```text
-$ codebase-agent ingest examples/demo
-demo
-  files: 3
-  symbols: 8
-  schema_version: 1
-
-$ codebase-agent ask demo "What does complete_task do?"
-The complete_task function marks a task complete by updating its status to True
-in the _tasks dictionary. It takes a slug as input and raises a KeyError if the
-task does not exist. [1]
-
-confidence=high evidence_sufficient=True
-Citations:
-  [1] tasks.TaskManager.complete_task (tasks.py:18-21)
-
-$ codebase-agent analyze demo
-Statistics
-  files=3 symbols=8 (functions=3 methods=4 classes=1)
-  call_edges=6 (resolved=2) import_edges=2 (resolved=2) inherits_edges=0
-
-Findings by category
-  architecture: 2
-  dead_code: 5
-```
-
-`reporting.summarize_counts` — a function nothing else in the demo repo calls — is correctly flagged under
-`dead_code`. Nothing above is edited or cherry-picked.
-
-The same three operations are available over HTTP — see [Usage](#usage) below for the full, real request/response
-pair. Interactive Swagger docs are at `/docs` once `python scripts/serve_api.py` is running.
-
-*(CLI and Swagger UI screenshots / a recorded GIF belong here — not yet captured.)*
+> [Roadmap](#roadmap)).
 
 <details>
 <summary><strong>Table of contents</strong></summary>
 
-- [Demo](#demo)
 - [Why this project exists](#why-this-project-exists)
 - [How it's different](#how-its-different)
+- [Design Principles](#design-principles)
+- [Demo](#demo)
 - [Features](#features)
 - [Architecture Overview](#architecture-overview)
 - [Technology Stack](#technology-stack)
@@ -117,6 +81,51 @@ the model *inferring* from retrieved text snippets, the same mechanism used for 
 This isn't a claim that those tools are worse — they solve a broader problem (general coding assistance) that this
 project doesn't attempt. This project is narrower and more structural: it exists specifically for the "I need to
 trust the answer enough to act on it" case.
+
+## Design Principles
+
+- Deterministic analysis before probabilistic reasoning
+- Evidence before answers
+- Layered architecture
+- Explainable outputs with exact citations
+- LLMs augment static analysis, not replace it
+
+## Demo
+
+Ingest a repository, then ask it a question. This is real, unedited output from the tiny example repo that ships
+in [`examples/demo`](examples/demo) — run it yourself right after cloning, no external repo or API mocking needed:
+
+```text
+$ codebase-agent ingest examples/demo
+demo
+  files: 3
+  symbols: 8
+  schema_version: 1
+
+$ codebase-agent ask demo "What does complete_task do?"
+The complete_task function marks a task complete by updating its status to True
+in the _tasks dictionary. It takes a slug as input and raises a KeyError if the
+task does not exist. [1]
+
+confidence=high evidence_sufficient=True
+Citations:
+  [1] tasks.TaskManager.complete_task (tasks.py:18-21)
+
+$ codebase-agent analyze demo
+Statistics
+  files=3 symbols=8 (functions=3 methods=4 classes=1)
+  call_edges=6 (resolved=2) import_edges=2 (resolved=2) inherits_edges=0
+
+Findings by category
+  architecture: 2
+  dead_code: 5
+```
+
+`reporting.summarize_counts` — a function nothing else in the demo repo calls — is correctly flagged under
+`dead_code`. Nothing above is edited or cherry-picked.
+
+The same three operations are available over HTTP — see [Usage](#usage) below for the full, real request/response
+pair. Interactive Swagger docs are at `/docs` once `python scripts/serve_api.py` is running.
 
 ## Features
 
