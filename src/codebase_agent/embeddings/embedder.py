@@ -28,7 +28,7 @@ class CodeEmbedder:
             return []
 
         model = self._get_model()
-        self._warn_if_truncated(texts)
+        texts = self._warn_if_truncated(texts)
 
         vectors = model.encode(
             texts,
@@ -55,20 +55,37 @@ class CodeEmbedder:
             )
         return self._model
 
-    def _warn_if_truncated(self, texts: list[str]) -> None:
+    def _warn_if_truncated(self, texts: list[str]) -> list[str]:
+        """Truncate any text whose token count exceeds the model's max_seq_length.
+
+        jina-code loads with `trust_remote_code=True` (see `_get_model`), so its
+        tokenization is custom, ALiBi-based code and isn't guaranteed to enforce
+        `max_seq_length` internally the way a standard transformers model would.
+        Without truncating here, a single oversized chunk (e.g. a very large
+        function or module-level block) reaches `model.encode()` unbounded,
+        which can spike attention memory unpredictably - this keeps the bound
+        deterministic regardless of what the model does on its own.
+        """
         model = self._model
         max_tokens = getattr(model, "max_seq_length", None)
         if max_tokens is None:
-            return
+            return texts
         tokenizer = getattr(model, "tokenizer", None)
         if tokenizer is None:
-            return
+            return texts
+
+        result = []
         for text in texts:
-            token_count = len(tokenizer.encode(text, add_special_tokens=True))
-            if token_count > max_tokens:
+            token_ids = tokenizer.encode(text, add_special_tokens=True)
+            if len(token_ids) > max_tokens:
                 logger.warning(
                     "Chunk (%d tokens) exceeds embedding model max (%d) and will be truncated: %.80s",
-                    token_count,
+                    len(token_ids),
                     max_tokens,
                     text,
                 )
+                text = tokenizer.decode(
+                    token_ids[:max_tokens], skip_special_tokens=True
+                )
+            result.append(text)
+        return result

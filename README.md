@@ -41,7 +41,9 @@ cp .env.example .env               # then fill in GROQ_API_KEY
 
 Install `torch` separately first with the CUDA build matching your GPU driver if you want GPU-accelerated
 embeddings - see https://pytorch.org/get-started/locally/. Otherwise a CPU-only build installs automatically as a
-dependency of `sentence-transformers`.
+dependency of `sentence-transformers`. If ingestion hits a CUDA out-of-memory error, lower `EMBEDDING_BATCH_SIZE`
+in `.env` (see `.env.example`); if that's still not enough (a single very large chunk can be memory-heavy on its
+own), set `EMBEDDING_DEVICE=cpu`.
 
 ```bash
 codebase-agent ingest <path-or-git-url>
