@@ -15,6 +15,7 @@ codebase-agent = "codebase_agent.cli.main:app"
 where = ["src"]
 
 [tool.pytest.ini_options]
+testpaths = ["tests"]
 markers = [
     "integration: slower tests that load real model weights or hit external services",
 ]
