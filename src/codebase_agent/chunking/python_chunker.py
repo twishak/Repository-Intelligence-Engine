@@ -88,6 +88,16 @@ def _function_chunk(
 def _class_skeleton_chunk(
     source: SourceFile, node: ast.ClassDef, qualified_name: str
 ) -> CodeChunk:
+    # TODO: a class with very many methods (e.g. a large test class) produces
+    # one skeleton chunk containing every signature concatenated, with no
+    # size cap - this can end up far larger than a typical chunk (743 real
+    # chunks in requests/requests only ever produced one outlier, a 5000+
+    # token test-class skeleton). embeddings.CodeEmbedder now buckets batches
+    # by token length so this no longer forces unrelated short chunks to pad
+    # to its length, but the chunk itself is still one large, less-precise
+    # retrieval unit. Consider splitting oversized class skeletons into
+    # multiple logical chunks (e.g. by method groups) - a retrieval-quality
+    # improvement, separate from the embeddings-layer batching fix above.
     start_line = _start_line(node)
     end_line = node.end_lineno
     skeleton = _build_class_skeleton_text(node)

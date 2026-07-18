@@ -1,5 +1,7 @@
 import logging
 
+from tqdm.auto import trange
+
 from codebase_agent.config import settings
 
 logger = logging.getLogger(__name__)
@@ -28,16 +30,39 @@ class CodeEmbedder:
             return []
 
         model = self._get_model()
-        texts = self._warn_if_truncated(texts)
+        texts, token_lengths = self._truncate_and_measure(texts)
 
-        vectors = model.encode(
-            texts,
-            batch_size=self._batch_size,
-            normalize_embeddings=True,
-            convert_to_numpy=True,
-            show_progress_bar=len(texts) > self._batch_size,
-        )
-        return vectors.tolist()
+        # sentence-transformers' own encode() sorts by len(text) (characters)
+        # to group similarly-sized inputs before padding - a decent proxy in
+        # general, but code chunks vary enough that it isn't reliable: one
+        # outlier (e.g. a large class's method-signature skeleton) can still
+        # land in the same padded batch as much shorter chunks. Bucketing by
+        # real token length here, then calling encode() once per bucket,
+        # bounds each batch's padding to chunks of genuinely similar length.
+        order = sorted(range(len(texts)), key=lambda i: token_lengths[i])
+        vectors: list[list[float] | None] = [None] * len(texts)
+
+        show_progress_bar = len(texts) > self._batch_size
+        for start in trange(
+            0,
+            len(order),
+            self._batch_size,
+            desc="Batches",
+            disable=not show_progress_bar,
+        ):
+            batch_indices = order[start : start + self._batch_size]
+            batch_texts = [texts[i] for i in batch_indices]
+            batch_vectors = model.encode(
+                batch_texts,
+                batch_size=len(batch_texts),
+                normalize_embeddings=True,
+                convert_to_numpy=True,
+                show_progress_bar=False,
+            )
+            for idx, vector in zip(batch_indices, batch_vectors, strict=True):
+                vectors[idx] = vector.tolist()
+
+        return vectors
 
     def _get_model(self):
         if self._model is None:
@@ -55,8 +80,11 @@ class CodeEmbedder:
             )
         return self._model
 
-    def _warn_if_truncated(self, texts: list[str]) -> list[str]:
-        """Truncate any text whose token count exceeds the model's max_seq_length.
+    def _truncate_and_measure(self, texts: list[str]) -> tuple[list[str], list[int]]:
+        """Truncate oversized text and return each text's token length.
+
+        Does both in the same pass so `embed()` can batch by real token
+        length afterward without tokenizing every chunk a second time.
 
         jina-code loads with `trust_remote_code=True` (see `_get_model`), so its
         tokenization is custom, ALiBi-based code and isn't guaranteed to enforce
@@ -68,24 +96,29 @@ class CodeEmbedder:
         """
         model = self._model
         max_tokens = getattr(model, "max_seq_length", None)
-        if max_tokens is None:
-            return texts
         tokenizer = getattr(model, "tokenizer", None)
-        if tokenizer is None:
-            return texts
+        if max_tokens is None or tokenizer is None:
+            # No token-level info available - character count is the same
+            # proxy sentence-transformers' own internal batching falls back
+            # to, and there's nothing to truncate against without a tokenizer.
+            return texts, [len(text) for text in texts]
 
-        result = []
+        result_texts = []
+        result_lengths = []
         for text in texts:
             token_ids = tokenizer.encode(text, add_special_tokens=True)
-            if len(token_ids) > max_tokens:
+            length = len(token_ids)
+            if length > max_tokens:
                 logger.warning(
                     "Chunk (%d tokens) exceeds embedding model max (%d) and will be truncated: %.80s",
-                    len(token_ids),
+                    length,
                     max_tokens,
                     text,
                 )
                 text = tokenizer.decode(
                     token_ids[:max_tokens], skip_special_tokens=True
                 )
-            result.append(text)
-        return result
+                length = max_tokens
+            result_texts.append(text)
+            result_lengths.append(length)
+        return result_texts, result_lengths

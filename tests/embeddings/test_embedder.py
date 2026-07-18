@@ -26,11 +26,18 @@ class _FakeModel:
     def __init__(self, max_seq_length):
         self.max_seq_length = max_seq_length
         self.tokenizer = _FakeTokenizer()
-        self.encoded_texts: list[str] | None = None
+        self.encode_calls: list[list[str]] = []
 
     def encode(self, texts, **kwargs):
-        self.encoded_texts = list(texts)
-        return np.zeros((len(texts), 4))
+        self.encode_calls.append(list(texts))
+        # Each vector's first component is the text's length, so tests can
+        # verify embed() maps results back to the right original text.
+        return np.array([[float(len(t))] * 4 for t in texts])
+
+    @property
+    def encoded_texts(self) -> list[str]:
+        """All texts passed to encode(), across every batch call, in call order."""
+        return [text for call in self.encode_calls for text in call]
 
 
 def _embedder_with_fake_model(max_seq_length: int) -> tuple[CodeEmbedder, _FakeModel]:
@@ -76,6 +83,67 @@ def test_embed_does_not_warn_for_normal_sized_text(caplog):
         embedder.embed(["x" * 5])
 
     assert caplog.records == []
+
+
+def test_embed_groups_batches_by_token_length_not_original_order():
+    embedder, fake_model = _embedder_with_fake_model(max_seq_length=1000)
+    embedder._batch_size = 2
+    # Original order is deliberately not sorted by length.
+    texts = ["a" * 50, "b" * 5, "c" * 40, "d" * 3]
+
+    embedder.embed(texts)
+
+    assert fake_model.encode_calls == [
+        ["d" * 3, "b" * 5],
+        ["c" * 40, "a" * 50],
+    ]
+
+
+def test_embed_isolates_a_single_long_chunk_into_its_own_batch():
+    # Regression test: previously, wherever a long chunk fell in the original
+    # order, every other chunk in the same fixed-size batch got padded up to
+    # its length. With enough short chunks to fill full batches of their own,
+    # length-based bucketing should isolate the one outlier into a batch with
+    # no unrelated short chunks in it at all.
+    embedder, fake_model = _embedder_with_fake_model(max_seq_length=10_000)
+    embedder._batch_size = 4
+    shorts = [f"short{i}" for i in range(8)]  # 8 equal-length chunks -> 2 full batches
+    long_chunk = "x" * 5000
+    texts = [
+        *shorts[:3],
+        long_chunk,
+        *shorts[3:],
+    ]  # interleaved, not appended at the end
+
+    embedder.embed(texts)
+
+    calls_with_long_chunk = [
+        call for call in fake_model.encode_calls if long_chunk in call
+    ]
+    assert calls_with_long_chunk == [[long_chunk]]
+
+
+def test_embed_preserves_original_order_in_results():
+    embedder, _ = _embedder_with_fake_model(max_seq_length=1000)
+    embedder._batch_size = 2
+    texts = ["a" * 50, "b" * 5, "c" * 40, "d" * 3]
+
+    vectors = embedder.embed(texts)
+
+    assert [v[0] for v in vectors] == [50.0, 5.0, 40.0, 3.0]
+
+
+def test_embed_tokenizes_each_text_only_once():
+    embedder, fake_model = _embedder_with_fake_model(max_seq_length=1000)
+    calls = []
+    original_encode = fake_model.tokenizer.encode
+    fake_model.tokenizer.encode = lambda text, **kw: (
+        calls.append(text) or original_encode(text, **kw)
+    )
+
+    embedder.embed(["a", "bb", "ccc"])
+
+    assert calls == ["a", "bb", "ccc"]
 
 
 @pytest.fixture(scope="module")
