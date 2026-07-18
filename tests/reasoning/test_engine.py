@@ -1,5 +1,8 @@
 import json
 
+import groq
+import httpx
+
 from codebase_agent.reasoning.engine import ReasoningEngine
 from codebase_agent.reasoning.result import AnswerConfidence
 from codebase_agent.retrieval.evidence import (
@@ -40,6 +43,27 @@ class _FakeLLM:
 
     def chat(self, **kwargs):
         self.last_kwargs = kwargs
+        return self._message
+
+
+class _FlakyFakeLLM:
+    """Raises groq.APIError on the first N calls, then returns a real message."""
+
+    model = "fake-model"
+
+    def __init__(self, message, failures: int):
+        self._message = message
+        self._failures = failures
+        self.call_count = 0
+
+    def chat(self, **kwargs):
+        self.call_count += 1
+        if self.call_count <= self._failures:
+            raise groq.APIError(
+                "schema validation failed",
+                request=httpx.Request("POST", "https://api.groq.com/x"),
+                body=None,
+            )
         return self._message
 
 
@@ -191,3 +215,42 @@ def test_reasoning_time_and_prompt_version_are_recorded():
 
     assert result.reasoning_time_seconds >= 0
     assert result.prompt_version
+
+
+def test_retries_once_after_a_groq_api_error_and_succeeds():
+    llm = _FlakyFakeLLM(
+        _tool_call_message(
+            answer="foo does X [1]",
+            citations=[1],
+            confidence="high",
+            evidence_sufficient=True,
+        ),
+        failures=1,
+    )
+    bundle = _bundle([_item()])
+
+    result = ReasoningEngine(llm=llm).reason(bundle)
+
+    assert llm.call_count == 2
+    assert result.confidence == AnswerConfidence.HIGH
+    assert result.answer == "foo does X [1]"
+
+
+def test_falls_back_when_groq_api_error_persists_through_the_retry():
+    llm = _FlakyFakeLLM(
+        _tool_call_message(
+            answer="unreachable",
+            citations=[],
+            confidence="high",
+            evidence_sufficient=True,
+        ),
+        failures=2,
+    )
+    bundle = _bundle([_item()])
+
+    result = ReasoningEngine(llm=llm).reason(bundle)
+
+    assert llm.call_count == 2
+    assert result.confidence == AnswerConfidence.LOW
+    assert result.evidence_sufficient is False
+    assert result.citations == ()

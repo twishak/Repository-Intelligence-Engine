@@ -3,6 +3,8 @@ import logging
 import time
 from dataclasses import replace
 
+import groq
+
 from codebase_agent.llm import GroqClient
 from codebase_agent.reasoning.prompt_loader import (
     PROMPT_VERSION,
@@ -84,7 +86,7 @@ class ReasoningEngine:
         start = time.perf_counter()
         numbered_evidence = list(enumerate(evidence_bundle.items, start=1))
 
-        message = self._llm.chat(
+        message = self._call_llm(
             messages=[
                 {"role": "system", "content": render_system_prompt()},
                 {
@@ -101,13 +103,36 @@ class ReasoningEngine:
             },
         )
 
-        draft = _parse_reasoning_output(message, evidence_bundle, self._llm.model)
+        if message is None:
+            draft = _fallback_result(
+                evidence_bundle,
+                self._llm.model,
+                "The reasoning service was temporarily unavailable.",
+            )
+        else:
+            draft = _parse_reasoning_output(message, evidence_bundle, self._llm.model)
+
         issues = self._validator.validate(draft, evidence_bundle)
         return replace(
             draft,
             validation_issues=tuple(issues),
             reasoning_time_seconds=time.perf_counter() - start,
         )
+
+    def _call_llm(self, **kwargs):
+        # Groq occasionally rejects a tool-call response with a 400 because the
+        # model emitted a value that doesn't match the declared JSON schema
+        # (e.g. a string where a boolean is expected) - retrying the identical
+        # request has been observed to succeed, so one retry is attempted
+        # before degrading to a fallback result rather than crashing outright.
+        for attempt in range(2):
+            try:
+                return self._llm.chat(**kwargs)
+            except groq.APIError as e:
+                logger.warning(
+                    "Groq API call failed (attempt %d/2): %s", attempt + 1, e
+                )
+        return None
 
 
 def _fallback_result(
