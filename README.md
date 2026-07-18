@@ -1,16 +1,41 @@
 # Repository Intelligence Engine
 
-*(working name — package is `codebase-agent`; the public repo name isn't finalized yet)*
-
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 ![Tests](https://img.shields.io/badge/tests-262%20passing-brightgreen)
+![Status](https://img.shields.io/badge/status-pre--1.0-orange)
 
 **Ask questions about a codebase in plain English and get answers with exact file/line citations — not guesses.**
 
 It combines deterministic static analysis (symbol tables, call/import/inheritance graphs) with semantic search and
 an LLM reasoning step, then separately runs five LLM-free analyzers (dead code, circular dependencies, complexity,
 TODOs, architecture) over the same repository. Everything is available through both a CLI and a REST API.
+
+> [!NOTE]
+> Pre-1.0 and Python-only today — multi-language support is deferred by design, not forgotten (see
+> [Roadmap](#roadmap)). Package name is `codebase-agent`.
+
+<details>
+<summary><strong>Table of contents</strong></summary>
+
+- [Why this project exists](#why-this-project-exists)
+- [How it's different](#how-its-different)
+- [Demo](#demo)
+- [Features](#features)
+- [Architecture Overview](#architecture-overview)
+- [Technology Stack](#technology-stack)
+- [Quick Start](#quick-start)
+- [Usage](#usage)
+- [Repository Analysis](#repository-analysis)
+- [Question Answering](#question-answering)
+- [Repository Structure](#repository-structure)
+- [Documentation](#documentation)
+- [Development](#development)
+- [Roadmap](#roadmap)
+- [FAQ](#faq)
+- [License](#license)
+
+</details>
 
 ---
 
@@ -31,6 +56,28 @@ training. That's a hallucination that reads exactly like a real answer.
 two independent, deterministic sources of truth first — an `ast`-based symbol/call/import graph, and semantic
 search over embedded code chunks — and only then lets an LLM reason *over retrieved evidence*, citing exactly which
 evidence it used. If the evidence doesn't support an answer, the system says so instead of guessing.
+
+## How it's different
+
+Most "chat with your codebase" tools fall into two camps: IDE assistants (e.g. Copilot Chat, Cursor) that reason
+over open-file context plus repo-wide semantic search, and generic RAG-over-code chatbots that embed a repo and
+retrieve chunks by similarity alone. Both are genuinely useful. Neither typically has a real call/import/inheritance
+graph to fall back on — so structural questions ("what calls this," "what does this inherit from") get answered by
+the model *inferring* from retrieved text snippets, the same mechanism used for everything else.
+
+| | IDE assistants (Copilot Chat, Cursor) | Generic RAG-over-code | This project |
+|---|---|---|---|
+| Grounding | Open files + semantic search | Semantic search only | Static analysis (exact) **and** semantic search (fuzzy), combined |
+| "What calls this?" | Typically inferred by the model from retrieved text | Typically inferred by the model from retrieved text | Answered from an actual call graph, not inferred |
+| Citation locations | Typically transcribed by the model | Typically transcribed by the model | Resolved to file/line in Python code, not by the model ([ADR-0010](docs/adr/0010-index-based-citation-resolution.md)) |
+| Dead code / cycles / complexity | Not typically included | Not typically included | Five deterministic analyzers, no LLM involved |
+| Explicit confidence + "evidence insufficient" | Varies by tool | Rarely surfaced | Always returned as structured fields, not buried in prose |
+| Interface | IDE-embedded | Usually IDE-embedded or hosted SaaS | CLI + self-hostable REST API |
+| Where your code goes | Cloud-hosted, provider-dependent | Usually cloud-hosted | Ingestion, embeddings, and the vector store are all local; only the final reasoning call (your question + retrieved evidence) leaves the machine |
+
+This isn't a claim that those tools are worse — they solve a broader problem (general coding assistance) that this
+project doesn't attempt. This project is narrower and more structural: it exists specifically for the "I need to
+trust the answer enough to act on it" case.
 
 ## Demo
 
@@ -66,13 +113,8 @@ Findings by category
 `reporting.summarize_counts` — a function nothing else in the demo repo calls — is correctly flagged under
 `dead_code`. Nothing above is edited or cherry-picked.
 
-The same three operations are available over HTTP:
-
-```text
-$ curl -X POST http://127.0.0.1:8000/v1/repositories -d '{"source": "examples/demo"}'
-$ curl -X POST http://127.0.0.1:8000/v1/repositories/demo/questions -d '{"question": "What does complete_task do?"}'
-$ curl http://127.0.0.1:8000/v1/repositories/demo/insights
-```
+The same three operations are available over HTTP — see [Usage](#usage) below for the full, real request/response
+pair. Interactive Swagger docs are at `/docs` once `python scripts/serve_api.py` is running.
 
 *(CLI and Swagger UI screenshots / a recorded GIF belong here — not yet captured.)*
 
@@ -103,12 +145,15 @@ $ curl http://127.0.0.1:8000/v1/repositories/demo/insights
 
 **Engineering Quality**
 - 262 automated tests, run in CI on Python 3.10 and 3.12
-- Strictly layered architecture, enforced by convention and reviewed in every PR (see [Contributing](CONTRIBUTING.md))
+- Layered architecture, six layers deep, reviewed by convention in every PR (see [Contributing](CONTRIBUTING.md)) —
+  not yet machine-enforced, see [Roadmap](#roadmap)
 - 19 [Architecture Decision Records](docs/adr/README.md) documenting *why*, not just *what*
 - Locked dependency set (`requirements.lock`) for reproducible installs
 - Apache-2.0 licensed
 
 ## Architecture Overview
+
+Six layers, each depending only on the one directly below it:
 
 ```mermaid
 flowchart TB
@@ -123,6 +168,7 @@ flowchart TB
         RE["Reasoning Engine"]
         INS["Repository Insights"]
     end
+    RET["Reasoning Retrieval Engine"]
     KB["Knowledge Layer"]
     subgraph Foundation["Foundation"]
         direction LR
@@ -130,19 +176,21 @@ flowchart TB
         ING["Ingestion + Embeddings"]
     end
 
-    Presentation --> AS --> Reasoning --> KB --> Foundation
+    Presentation --> AS --> Reasoning --> RET --> KB --> Foundation
 ```
 
 - **CLI / REST API** — the only user-facing surfaces; render the same data two different ways.
 - **Application Services** — the single boundary the interfaces are allowed to call into.
 - **Reasoning Engine / Repository Insights** — turn retrieved evidence into a cited answer, or run deterministic
   analyzers; neither one talks to the other.
+- **Reasoning Retrieval Engine** — gathers evidence for a question; never generates prose itself.
 - **Knowledge Layer** — the one access point everything above depends on for symbols, graphs, and search.
 - **Repository Intelligence / Ingestion** — the two independent pipelines that build the Knowledge Layer's data:
   static analysis, and chunk-embed-store.
 
-Each layer only depends on the layer directly below it. Full diagrams and the reasoning behind every boundary:
-[`docs/architecture.md`](docs/architecture.md).
+Each layer only depends on the layer directly below it — reviewed by convention today, not yet enforced by tooling
+(an automated import-boundary check is on the [Roadmap](#roadmap)). Full diagrams and the reasoning behind every
+boundary: [`docs/architecture.md`](docs/architecture.md).
 
 ## Technology Stack
 
@@ -164,8 +212,8 @@ Each layer only depends on the layer directly below it. Full diagrams and the re
 Requires Python 3.10+ and a [Groq API key](https://console.groq.com/keys).
 
 ```bash
-git clone <this-repo>
-cd <this-repo>
+git clone https://github.com/twisha-khurana/Repository-Intelligence-Engine.git
+cd Repository-Intelligence-Engine
 
 pip install -r requirements.lock   # exact, tested versions
 pip install -e .                   # registers the `codebase-agent` command
@@ -209,30 +257,68 @@ python scripts/serve_api.py
 Open `http://127.0.0.1:8000/docs` for interactive Swagger docs, or `/openapi.json` for the raw schema.
 
 ```bash
-# Ingest
+# Ingest (works for a local path or a git URL)
 curl -X POST http://127.0.0.1:8000/v1/repositories \
   -H "Content-Type: application/json" \
-  -d '{"source": "https://github.com/psf/requests.git"}'
+  -d '{"source": "examples/demo"}'
 
 # Ask a grounded question
-curl -X POST http://127.0.0.1:8000/v1/repositories/requests/questions \
+curl -X POST http://127.0.0.1:8000/v1/repositories/demo/questions \
   -H "Content-Type: application/json" \
-  -d '{"question": "Where is authentication handled?"}'
+  -d '{"question": "What does complete_task do?"}'
+```
+
+Real, unedited response from the command above (run against `examples/demo`, same repo as the CLI demo):
+
+```json
+{
+  "question": "What does complete_task do?",
+  "answer": "The function complete_task marks a task as complete by setting the second element of the tuple associated with the task's slug in the _tasks dictionary to True. It raises a KeyError if the task does not exist. [1]",
+  "confidence": "high",
+  "evidence_sufficient": true,
+  "assumptions": [],
+  "limitations": [],
+  "citations": [
+    {
+      "evidence_index": 1,
+      "qualified_name": "tasks.TaskManager.complete_task",
+      "file_path": "tasks.py",
+      "start_line": 18,
+      "end_line": 21,
+      "source": "symbol"
+    }
+  ],
+  "validation_issues": [],
+  "model": "llama-3.3-70b-versatile",
+  "prompt_version": "v1"
+}
+```
+
+```bash
+# Run the deterministic analyzers
+curl http://127.0.0.1:8000/v1/repositories/demo/insights
 ```
 
 ```json
 {
-  "answer": "Authentication is handled by the auth module's AuthBase subclasses... [1]",
-  "confidence": "high",
-  "evidence_sufficient": true,
-  "citations": [
-    {"qualified_name": "requests.auth.HTTPBasicAuth", "file_path": "requests/auth.py", "start_line": 96, "end_line": 105}
+  "finding_counts": {"dead_code": 5, "architecture": 2},
+  "findings": [
+    {
+      "id": "d76acde841f6",
+      "category": "dead_code",
+      "severity": "warning",
+      "title": "No callers found for 'tasks.TaskManager.complete_task'",
+      "qualified_name": "tasks.TaskManager.complete_task",
+      "file_path": "tasks.py",
+      "start_line": 18,
+      "end_line": 21
+    }
   ]
 }
 ```
 
-(Response shown trimmed to the fields that matter here — the real response also includes `assumptions`,
-`limitations`, `validation_issues`, `model`, and `prompt_version`.)
+(Both JSON responses above are real, unedited output from `examples/demo`, trimmed for length — the full response
+also includes per-analyzer `statistics`, `warnings`, and `execution_time_seconds`.)
 
 ## Repository Analysis
 
@@ -270,21 +356,9 @@ resolved back to exact file/line locations in Python, not transcribed by the mod
 depend on the model getting numbers right. A separate, deterministic (non-LLM) validation pass then flags things
 like citation indices that don't exist or a "sufficient evidence" claim with none supplied.
 
-## Project Highlights
-
-- **262 automated tests**, run against every push/PR in CI (Python 3.10 and 3.12)
-- **Strictly layered architecture** — six layers, each depending only on the one directly below it
-- **19 Architecture Decision Records** — the reasoning behind every non-obvious design choice, not just the code
-- **REST API and CLI**, both built on one Application Service layer with zero duplicated logic
-- **AST-based static analysis** independent of any LLM — symbol table, call/import/inheritance graphs
-- **ChromaDB** for local, embedded semantic search — no external vector database to run
-- **LangGraph** used as a deterministic single-pass pipeline, not an unbounded agentic loop
-- **CI pipeline** enforcing lint, format, and the full non-integration test suite
-- **Apache-2.0** licensed
-
 ## Repository Structure
 
-```
+```text
 src/codebase_agent/
   intelligence/   AST-based static analysis: symbol table, call/import/inheritance graphs
   ingestion/      Discovers and loads source files from a repo checkout
@@ -343,13 +417,48 @@ Python 3.10 and 3.12. All three must pass before a PR is merged.
 **Planned**
 - LLM-generated repository summary (the `RepositoryReport.summary` field already exists, reserved for this)
 - Splitting oversized `class_skeleton` chunks (very large classes) into multiple logical chunks for better retrieval
-- Finalizing the public repository/package name
+- Automated import-boundary check in CI, so layering is enforced by tooling rather than PR review alone
 
 **Future ideas**
 - Multi-language support beyond Python — the static-analysis output shape was deliberately kept language-agnostic
   for this ([ADR-0002](docs/adr/0002-python-first-before-multi-language-expansion.md))
 - Runtime heuristics deliberately deferred so far, such as adaptive embedding batch sizing and automatic OOM recovery
 
+## FAQ
+
+**Does my code get sent anywhere?**
+Ingestion, chunking, embeddings, static analysis, and the vector store all run locally — nothing leaves the machine
+while a repo is being ingested. Answering a question makes two calls to the Groq API: one to plan *how* to retrieve
+evidence (your question only, no code), and one to reason over the evidence that retrieval gathers (your question
+plus the retrieved snippets/citations).
+
+**Can I use a different LLM or embedding model?**
+The embedding model (`EMBEDDING_MODEL_NAME`, default `jinaai/jina-embeddings-v2-base-code`) and the Groq model
+(`GROQ_MODEL`, default `llama-3.3-70b-versatile`) are both configurable via `.env`. The LLM *provider* is Groq-only
+today — swapping to a different provider means changing `GroqClient` (`src/codebase_agent/llm/client.py`), not just
+a config value.
+
+**Why not just use Copilot Chat or Cursor?**
+Different problem. Those are general-purpose coding assistants; this is narrower and structural — see
+[How it's different](#how-its-different).
+
+**Does it support languages other than Python?**
+Not yet. Python-only today, deliberately — see [Roadmap](#roadmap) and
+[ADR-0002](docs/adr/0002-python-first-before-multi-language-expansion.md).
+
+**What happens if there isn't enough evidence to answer confidently?**
+The answer says so: `evidence_sufficient: false` and low confidence, rather than a fabricated answer. See the
+Question Answering section above.
+
+**Is this production-ready?**
+No — it's pre-1.0 and solo-maintained. See [Roadmap](#roadmap) and [Changelog](CHANGELOG.md) for what's done versus
+planned.
+
 ## License
 
 Apache License 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
+
+---
+
+Issues, questions, and pull requests are welcome — see [Contributing](CONTRIBUTING.md). If this is useful to you,
+a star helps others find it.
