@@ -15,12 +15,51 @@ TODOs, architecture) over the same repository. Everything is available through b
 > Pre-1.0 and Python-only today — multi-language support is deferred by design, not forgotten (see
 > [Roadmap](#roadmap)). Package name is `codebase-agent`.
 
+## Demo
+
+Ingest a repository, then ask it a question. This is real, unedited output from the tiny example repo that ships
+in [`examples/demo`](examples/demo) — run it yourself right after cloning, no external repo or API mocking needed:
+
+```text
+$ codebase-agent ingest examples/demo
+demo
+  files: 3
+  symbols: 8
+  schema_version: 1
+
+$ codebase-agent ask demo "What does complete_task do?"
+The complete_task function marks a task complete by updating its status to True
+in the _tasks dictionary. It takes a slug as input and raises a KeyError if the
+task does not exist. [1]
+
+confidence=high evidence_sufficient=True
+Citations:
+  [1] tasks.TaskManager.complete_task (tasks.py:18-21)
+
+$ codebase-agent analyze demo
+Statistics
+  files=3 symbols=8 (functions=3 methods=4 classes=1)
+  call_edges=6 (resolved=2) import_edges=2 (resolved=2) inherits_edges=0
+
+Findings by category
+  architecture: 2
+  dead_code: 5
+```
+
+`reporting.summarize_counts` — a function nothing else in the demo repo calls — is correctly flagged under
+`dead_code`. Nothing above is edited or cherry-picked.
+
+The same three operations are available over HTTP — see [Usage](#usage) below for the full, real request/response
+pair. Interactive Swagger docs are at `/docs` once `python scripts/serve_api.py` is running.
+
+*(CLI and Swagger UI screenshots / a recorded GIF belong here — not yet captured.)*
+
 <details>
 <summary><strong>Table of contents</strong></summary>
 
+- [Demo](#demo)
 - [Why this project exists](#why-this-project-exists)
 - [How it's different](#how-its-different)
-- [Demo](#demo)
 - [Features](#features)
 - [Architecture Overview](#architecture-overview)
 - [Technology Stack](#technology-stack)
@@ -78,45 +117,6 @@ the model *inferring* from retrieved text snippets, the same mechanism used for 
 This isn't a claim that those tools are worse — they solve a broader problem (general coding assistance) that this
 project doesn't attempt. This project is narrower and more structural: it exists specifically for the "I need to
 trust the answer enough to act on it" case.
-
-## Demo
-
-Ingest a repository, then ask it a question. This is real, unedited output from the tiny example repo that ships
-in [`examples/demo`](examples/demo) — run it yourself right after cloning, no external repo or API mocking needed:
-
-```text
-$ codebase-agent ingest examples/demo
-demo
-  files: 3
-  symbols: 8
-  schema_version: 1
-
-$ codebase-agent ask demo "What does complete_task do?"
-The complete_task function marks a task complete by updating its status to True
-in the _tasks dictionary. It takes a slug as input and raises a KeyError if the
-task does not exist. [1]
-
-confidence=high evidence_sufficient=True
-Citations:
-  [1] tasks.TaskManager.complete_task (tasks.py:18-21)
-
-$ codebase-agent analyze demo
-Statistics
-  files=3 symbols=8 (functions=3 methods=4 classes=1)
-  call_edges=6 (resolved=2) import_edges=2 (resolved=2) inherits_edges=0
-
-Findings by category
-  architecture: 2
-  dead_code: 5
-```
-
-`reporting.summarize_counts` — a function nothing else in the demo repo calls — is correctly flagged under
-`dead_code`. Nothing above is edited or cherry-picked.
-
-The same three operations are available over HTTP — see [Usage](#usage) below for the full, real request/response
-pair. Interactive Swagger docs are at `/docs` once `python scripts/serve_api.py` is running.
-
-*(CLI and Swagger UI screenshots / a recorded GIF belong here — not yet captured.)*
 
 ## Features
 
@@ -235,105 +235,22 @@ lives in [`.env.example`](.env.example), not here.
 
 ## Usage
 
-### CLI
-
 ```bash
-codebase-agent ingest <path-or-git-url>          # ingest a local path or git URL
-codebase-agent list                              # list ingested repositories
-codebase-agent info <repo-name>                  # show metadata for one
-codebase-agent ask <repo-name> "<question>"       # grounded, cited Q&A
-codebase-agent ask <repo-name> "<question>" \
-    --active-file src/app.py --active-symbol App  # optional IDE-style grounding
-codebase-agent analyze <repo-name>                # run all 5 insight analyzers
-codebase-agent analyze <repo-name> --category dead_code
+codebase-agent ask <repo-name> "<question>"      # CLI
+python scripts/serve_api.py                      # REST API — Swagger docs at /docs
 ```
 
-### REST API
-
-```bash
-python scripts/serve_api.py
-```
-
-Open `http://127.0.0.1:8000/docs` for interactive Swagger docs, or `/openapi.json` for the raw schema.
-
-```bash
-# Ingest (works for a local path or a git URL)
-curl -X POST http://127.0.0.1:8000/v1/repositories \
-  -H "Content-Type: application/json" \
-  -d '{"source": "examples/demo"}'
-
-# Ask a grounded question
-curl -X POST http://127.0.0.1:8000/v1/repositories/demo/questions \
-  -H "Content-Type: application/json" \
-  -d '{"question": "What does complete_task do?"}'
-```
-
-Real, unedited response from the command above (run against `examples/demo`, same repo as the CLI demo):
-
-```json
-{
-  "question": "What does complete_task do?",
-  "answer": "The function complete_task marks a task as complete by setting the second element of the tuple associated with the task's slug in the _tasks dictionary to True. It raises a KeyError if the task does not exist. [1]",
-  "confidence": "high",
-  "evidence_sufficient": true,
-  "assumptions": [],
-  "limitations": [],
-  "citations": [
-    {
-      "evidence_index": 1,
-      "qualified_name": "tasks.TaskManager.complete_task",
-      "file_path": "tasks.py",
-      "start_line": 18,
-      "end_line": 21,
-      "source": "symbol"
-    }
-  ],
-  "validation_issues": [],
-  "model": "llama-3.3-70b-versatile",
-  "prompt_version": "v1"
-}
-```
-
-```bash
-# Run the deterministic analyzers
-curl http://127.0.0.1:8000/v1/repositories/demo/insights
-```
-
-```json
-{
-  "finding_counts": {"dead_code": 5, "architecture": 2},
-  "findings": [
-    {
-      "id": "d76acde841f6",
-      "category": "dead_code",
-      "severity": "warning",
-      "title": "No callers found for 'tasks.TaskManager.complete_task'",
-      "qualified_name": "tasks.TaskManager.complete_task",
-      "file_path": "tasks.py",
-      "start_line": 18,
-      "end_line": 21
-    }
-  ]
-}
-```
-
-(Both JSON responses above are real, unedited output from `examples/demo`, trimmed for length — the full response
-also includes per-analyzer `statistics`, `warnings`, and `execution_time_seconds`.)
+Every CLI command (`ingest`, `list`, `info`, `ask`, `analyze`) and every REST route, with full real
+request/response examples, is documented in **[`docs/cli-and-api.md`](docs/cli-and-api.md)**.
 
 ## Repository Analysis
 
-Five analyzers run over a `KnowledgeBase`, independently of each other and without calling an LLM:
+Five analyzers — dead code, circular dependencies, complexity, TODO/FIXME, architecture — run independently of
+each other and without calling an LLM. Deterministic on purpose: the same repository always produces the same
+findings, so results are reproducible, diffable across commits, and safe to run in CI.
 
-| Category | What it finds |
-|---|---|
-| Dead code | Symbols with no resolved callers anywhere in the repo |
-| Circular dependencies | Import cycles between modules |
-| Complexity | Functions/methods that are unusually large or branchy |
-| TODO / FIXME | Outstanding markers left in comments |
-| Architecture | Structural findings, e.g. layering violations |
-
-They're deterministic on purpose: the same repository always produces the same findings, so results are
-reproducible, diffable across commits, and safe to run in CI — none of which is true of an LLM's opinion.
+Full details — what each analyzer finds, the `RepositoryReport`/`Finding` shape, a real captured example:
+**[`docs/repository-insights.md`](docs/repository-insights.md)**.
 
 ## Question Answering
 
@@ -348,44 +265,37 @@ flowchart LR
     RE --> A["Grounded Answer"]
 ```
 
-A question first goes to a planner, which decides *how* to answer it — symbol lookup, semantic search, call-graph
-walk, import-graph walk, or class hierarchy, possibly several of these for compound questions like impact analysis.
-Each step retrieves evidence from the Knowledge Base; nothing at this stage writes prose. Only once evidence is
-gathered does the Reasoning Engine make a single forced tool call to the LLM over all of it — citations are
-resolved back to exact file/line locations in Python, not transcribed by the model, so citation accuracy doesn't
-depend on the model getting numbers right. A separate, deterministic (non-LLM) validation pass then flags things
-like citation indices that don't exist or a "sufficient evidence" claim with none supplied.
+A question is planned (which retrieval strategy fits — symbol lookup, semantic search, a graph walk, or several for
+compound questions), evidence is gathered but never turned into prose at that stage, and only then does the
+Reasoning Engine make one forced tool call over all of it — citations are resolved back to exact file/line
+locations in Python, never transcribed by the model.
+
+Full pipeline — planning, execution, the reasoning tool schema, retry/degradation behavior, a real captured
+example: **[`docs/question-answering.md`](docs/question-answering.md)**.
 
 ## Repository Structure
 
 ```text
-src/codebase_agent/
-  intelligence/   AST-based static analysis: symbol table, call/import/inheritance graphs
-  ingestion/      Discovers and loads source files from a repo checkout
-  chunking/       Splits source files into embeddable chunks
-  embeddings/     Embeds chunks with a local sentence-transformers model
-  storage/        Persists chunk vectors in ChromaDB
-  knowledge/      KnowledgeBase — the single access boundary everything above depends on
-  retrieval/      Plans and executes evidence retrieval for a question
-  reasoning/      Turns retrieved evidence into a citation-backed, confidence-scored answer
-  insights/       Five deterministic, LLM-free repository analyzers
-  application/    Application Services — the only thing the CLI/API call into
-  api/            REST API (FastAPI)
-  cli/            CLI (Typer)
-  llm/ graph/ interface/   Legacy pipeline, superseded but kept in place untouched
-
-docs/             Architecture overview and 19 ADRs
-examples/demo/    A tiny real repo used by the Quick Start and demo above
-scripts/          Entry points: cli.py, serve_api.py, ingest_repo.py, analyze_repo.py
-tests/            262 tests, mirroring the src/codebase_agent layout
-data/             Gitignored local artifacts: ingested repos, graph/knowledge JSON, Chroma store
+src/codebase_agent/   intelligence, ingestion/chunking/embeddings/storage, knowledge, retrieval,
+                      reasoning, insights, application, api, cli — plus a kept-in-place legacy pipeline
+docs/                 Architecture, 19 ADRs, and per-layer deep dives
+examples/demo/        A tiny real repo used throughout the README and docs — zero setup to try it
+scripts/              Entry points: cli.py, serve_api.py, ingest_repo.py, analyze_repo.py
+tests/                262 tests, mirroring the src/codebase_agent layout
+data/                 Gitignored local artifacts: ingested repos, graph/knowledge JSON, Chroma store
 ```
+
+Full folder-by-folder breakdown, including every subpackage under `src/codebase_agent/`:
+**[`docs/project-structure.md`](docs/project-structure.md)**.
 
 ## Documentation
 
 - [Architecture](docs/architecture.md) — how the layers fit together
+- [Question Answering](docs/question-answering.md) — the ask/retrieval/reasoning pipeline in depth
+- [Repository Insights](docs/repository-insights.md) — the five analyzers in depth
+- [CLI and REST API Reference](docs/cli-and-api.md) — every command and route
+- [Project Structure](docs/project-structure.md) — full folder-by-folder breakdown
 - [Architecture Decision Records](docs/adr/README.md) — why each decision was made
-- API reference — interactive Swagger UI at `/docs` once `scripts/serve_api.py` is running
 - [Contributing](CONTRIBUTING.md)
 - [Security Policy](SECURITY.md)
 - [Changelog](CHANGELOG.md)
