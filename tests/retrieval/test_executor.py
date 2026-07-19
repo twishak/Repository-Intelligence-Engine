@@ -116,6 +116,110 @@ def test_no_max_results_keeps_all_items():
     assert len(bundle) == 2
 
 
+def test_falls_back_to_semantic_search_when_structured_retrieval_finds_nothing():
+    # Regression test: a plan built entirely from structured strategies
+    # (symbol_lookup, call_graph, import_graph, hierarchy) can return zero
+    # evidence when the planner's target doesn't resolve to a real symbol -
+    # e.g. a hallucinated or malformed identifier. Falling back to
+    # semantic_search over the raw question recovers evidence a human would
+    # still expect to see, instead of silently reporting "no evidence".
+    structured = Mock()
+    structured.retrieve.return_value = []
+    semantic = Mock()
+    semantic.retrieve.return_value = [_item()]
+    executor = RetrievalExecutor(
+        retrievers={
+            RetrievalStrategy.SYMBOL_LOOKUP: structured,
+            RetrievalStrategy.SEMANTIC_SEARCH: semantic,
+        }
+    )
+    plan = RetrievalPlan(
+        steps=(RetrievalStep(strategy=RetrievalStrategy.SYMBOL_LOOKUP, target="x"),)
+    )
+
+    bundle = executor.execute(Mock(), "what does the x decorator do", plan)
+
+    assert len(bundle) == 1
+    semantic.retrieve.assert_called_once()
+    fallback_step = semantic.retrieve.call_args.args[1]
+    assert fallback_step.strategy == RetrievalStrategy.SEMANTIC_SEARCH
+    assert fallback_step.query == "what does the x decorator do"
+    assert RetrievalStrategy.SEMANTIC_SEARCH in bundle.retrievers_used
+
+
+def test_fallback_logs_why_it_triggered(caplog):
+    structured = Mock()
+    structured.retrieve.return_value = []
+    semantic = Mock()
+    semantic.retrieve.return_value = []
+    executor = RetrievalExecutor(
+        retrievers={
+            RetrievalStrategy.SYMBOL_LOOKUP: structured,
+            RetrievalStrategy.SEMANTIC_SEARCH: semantic,
+        }
+    )
+    plan = RetrievalPlan(
+        steps=(RetrievalStep(strategy=RetrievalStrategy.SYMBOL_LOOKUP, target="x"),)
+    )
+
+    with caplog.at_level("WARNING"):
+        executor.execute(Mock(), "what does the x decorator do", plan)
+
+    assert any(
+        "falling back to semantic_search" in record.message for record in caplog.records
+    )
+
+
+def test_does_not_fall_back_when_structured_retrieval_finds_evidence():
+    structured = Mock()
+    structured.retrieve.return_value = [_item()]
+    semantic = Mock()
+    executor = RetrievalExecutor(
+        retrievers={
+            RetrievalStrategy.SYMBOL_LOOKUP: structured,
+            RetrievalStrategy.SEMANTIC_SEARCH: semantic,
+        }
+    )
+    plan = RetrievalPlan(
+        steps=(RetrievalStep(strategy=RetrievalStrategy.SYMBOL_LOOKUP, target="x"),)
+    )
+
+    executor.execute(Mock(), "q", plan)
+
+    semantic.retrieve.assert_not_called()
+
+
+def test_does_not_fall_back_when_plan_already_includes_semantic_search():
+    semantic = Mock()
+    semantic.retrieve.return_value = []
+    executor = RetrievalExecutor(
+        retrievers={RetrievalStrategy.SEMANTIC_SEARCH: semantic}
+    )
+    plan = RetrievalPlan(
+        steps=(RetrievalStep(strategy=RetrievalStrategy.SEMANTIC_SEARCH, query="q"),)
+    )
+
+    executor.execute(Mock(), "q", plan)
+
+    semantic.retrieve.assert_called_once()
+
+
+def test_fallback_handles_missing_semantic_search_retriever_gracefully():
+    structured = Mock()
+    structured.retrieve.return_value = []
+    executor = RetrievalExecutor(
+        retrievers={RetrievalStrategy.SYMBOL_LOOKUP: structured}
+    )
+    plan = RetrievalPlan(
+        steps=(RetrievalStep(strategy=RetrievalStrategy.SYMBOL_LOOKUP, target="x"),)
+    )
+
+    bundle = executor.execute(Mock(), "q", plan)
+
+    assert bundle.is_empty()
+    assert len(bundle.warnings) == 1
+
+
 def test_retrievers_used_dedupes_and_preserves_order():
     retriever = Mock()
     retriever.retrieve.return_value = []

@@ -48,6 +48,14 @@ class RetrievalExecutor:
     rather than aborting the whole plan - a multi-step plan (e.g. several
     retrievers for a compound question) is more useful partially-succeeding
     than fully failing on one bad step.
+
+    If every step in the plan is a structured strategy (symbol_lookup,
+    call_graph, import_graph, hierarchy - anything but semantic_search) and
+    none of them produced evidence, falls back to a single semantic_search
+    over the raw question. This is a safety net for planner target-extraction
+    mistakes (a hallucinated or malformed identifier resolves to nothing even
+    though the planner picked the right strategy) - it never runs if the plan
+    already included semantic_search, and it only ever runs once.
     """
 
     def __init__(
@@ -80,6 +88,34 @@ class RetrievalExecutor:
                 logger.exception("Retrieval step failed: %s", step)
                 warnings.append(ExecutionWarning(step=step, message=str(e)))
 
+        if not items and _is_purely_structured(plan.steps):
+            logger.warning(
+                "Structured retrieval (%s) returned no evidence for %r - "
+                "falling back to semantic_search over the raw question. This "
+                "usually means the planner's target didn't resolve to a real "
+                "symbol/file (e.g. a hallucinated or malformed name).",
+                ", ".join(step.strategy.value for step in plan.steps),
+                question,
+            )
+            fallback_step = RetrievalStep(
+                strategy=RetrievalStrategy.SEMANTIC_SEARCH, query=question
+            )
+            retriever = self._retrievers.get(RetrievalStrategy.SEMANTIC_SEARCH)
+            if retriever is None:
+                message = "No retriever registered for semantic_search fallback"
+                logger.warning(message)
+                warnings.append(ExecutionWarning(step=fallback_step, message=message))
+            else:
+                if RetrievalStrategy.SEMANTIC_SEARCH not in used:
+                    used.append(RetrievalStrategy.SEMANTIC_SEARCH)
+                try:
+                    items.extend(retriever.retrieve(kb, fallback_step))
+                except Exception as e:
+                    logger.exception("Semantic-search fallback failed")
+                    warnings.append(
+                        ExecutionWarning(step=fallback_step, message=str(e))
+                    )
+
         items = _apply_max_results(items, plan.max_results)
 
         return EvidenceBundle(
@@ -90,6 +126,13 @@ class RetrievalExecutor:
             warnings=tuple(warnings),
             execution_time_seconds=time.perf_counter() - start,
         )
+
+
+def _is_purely_structured(steps: tuple[RetrievalStep, ...]) -> bool:
+    """True if every step is a non-semantic strategy - i.e. the plan hasn't
+    already tried semantic_search, so falling back to it is still worthwhile.
+    """
+    return all(step.strategy != RetrievalStrategy.SEMANTIC_SEARCH for step in steps)
 
 
 def _apply_max_results(
