@@ -41,10 +41,28 @@ def resolve_symbol_candidates(
 
 
 def resolve_file_path(kb: KnowledgeBase, target: str) -> str | None:
-    """Resolve a file path or dotted module name to a known repo file path."""
+    """Resolve a file path or dotted module name to a known repo file path.
+
+    Tries an exact repo-relative path, then a dotted module name, then (for
+    a bare filename like `models.py` - a natural way to name a file, with no
+    directory component) a basename match against every known file. Only
+    resolves the basename match if it's unambiguous; a bare filename that
+    exists in more than one directory is genuinely ambiguous, and guessing
+    the wrong one would be worse than reporting no evidence.
+    """
     if target in kb.list_files():
         return target
-    return kb.resolve_module(target)
+
+    resolved = kb.resolve_module(target)
+    if resolved is not None:
+        return resolved
+
+    if "/" not in target:
+        matches = [f for f in kb.list_files() if f.rsplit("/", 1)[-1] == target]
+        if len(matches) == 1:
+            return matches[0]
+
+    return None
 
 
 def source_or(kb: KnowledgeBase, qualified_name: str | None, fallback: str) -> str:

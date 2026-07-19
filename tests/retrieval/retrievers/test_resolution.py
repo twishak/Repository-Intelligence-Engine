@@ -1,7 +1,10 @@
 from unittest.mock import Mock
 
 from codebase_agent.intelligence.models import Symbol
-from codebase_agent.retrieval.retrievers.resolution import resolve_symbol_candidates
+from codebase_agent.retrieval.retrievers.resolution import (
+    resolve_file_path,
+    resolve_symbol_candidates,
+)
 
 
 def _symbol(qualified_name: str) -> Symbol:
@@ -83,3 +86,38 @@ def test_unresolved_suffix_returns_empty():
     candidates = resolve_symbol_candidates(kb, "Other.run")
 
     assert candidates == []
+
+
+def test_resolve_file_path_exact_match_short_circuits():
+    kb = Mock()
+    kb.list_files.return_value = ["src/requests/models.py"]
+
+    assert resolve_file_path(kb, "src/requests/models.py") == "src/requests/models.py"
+    kb.resolve_module.assert_not_called()
+
+
+def test_resolve_file_path_falls_back_to_bare_filename_basename_match():
+    # Regression test: "what imports models.py" produced target="models.py"
+    # - neither a repo-relative path nor a dotted module name, so both
+    # existing lookups missed even though the file is unambiguous.
+    kb = Mock()
+    kb.list_files.return_value = ["src/requests/models.py", "src/requests/api.py"]
+    kb.resolve_module.return_value = None
+
+    assert resolve_file_path(kb, "models.py") == "src/requests/models.py"
+
+
+def test_resolve_file_path_ambiguous_basename_returns_none():
+    kb = Mock()
+    kb.list_files.return_value = ["pkg/a/utils.py", "pkg/b/utils.py"]
+    kb.resolve_module.return_value = None
+
+    assert resolve_file_path(kb, "utils.py") is None
+
+
+def test_resolve_file_path_does_not_basename_match_a_path_with_a_slash():
+    kb = Mock()
+    kb.list_files.return_value = ["pkg/a/models.py"]
+    kb.resolve_module.return_value = None
+
+    assert resolve_file_path(kb, "a/models.py") is None
