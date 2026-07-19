@@ -43,6 +43,27 @@ def test_user_prompt_handles_no_evidence():
     assert "no evidence" in prompt.lower()
 
 
+def test_user_prompt_omits_none_none_for_file_level_evidence():
+    # Regression test: import_graph evidence has no line numbers - rendering
+    # that as literal "path:None-None" reads as broken data to the LLM.
+    item = _item()
+    item = EvidenceItem(
+        source=item.source,
+        qualified_name=None,
+        file_path=item.file_path,
+        start_line=None,
+        end_line=None,
+        content=item.content,
+        explanation=item.explanation,
+        confidence=item.confidence,
+    )
+
+    prompt = render_user_prompt("q", [(1, item)])
+
+    assert "None-None" not in prompt
+    assert "pkg/a.py" in prompt
+
+
 def test_user_prompt_survives_evidence_containing_braces():
     item = _item(content="def foo(x={1: 2}): return {'ok': True}")
 

@@ -14,6 +14,7 @@ from codebase_agent.application import (
 from codebase_agent.insights import FindingCategory, FindingSeverity, RepositoryReport
 from codebase_agent.knowledge import RepoMetadata
 from codebase_agent.reasoning import ReasoningResult
+from codebase_agent.retrieval.evidence import format_location
 
 app = typer.Typer(
     help="Repository Intelligence Engine - ingest a repo, then ask questions or run analysis."
@@ -157,10 +158,8 @@ def _render_answer(result: ReasoningResult) -> None:
     if result.citations:
         console.print("Citations:")
         for citation in result.citations:
-            location = (
-                f"{citation.file_path}:{citation.start_line}-{citation.end_line}"
-                if citation.file_path
-                else "(no location)"
+            location = format_location(
+                citation.file_path, citation.start_line, citation.end_line
             )
             console.print(
                 f"  [{citation.evidence_index}] {citation.qualified_name or '(unnamed)'} ({location})"

@@ -2,6 +2,7 @@ from codebase_agent.retrieval.evidence import (
     EvidenceBundle,
     EvidenceItem,
     EvidenceSource,
+    format_location,
 )
 from codebase_agent.retrieval.plan import (
     RetrievalPlan,
@@ -67,3 +68,19 @@ def test_len_and_iter():
 
     assert len(bundle) == 2
     assert list(bundle) == items
+
+
+def test_format_location_with_line_range():
+    assert format_location("pkg/a.py", 1, 2) == "pkg/a.py:1-2"
+
+
+def test_format_location_omits_none_none_for_file_level_evidence():
+    # Regression test: import_graph evidence has no line numbers, and
+    # rendering that as literal "path:None-None" reads as broken data to
+    # the reasoning LLM, observed to make it distrust otherwise-solid
+    # evidence and report low confidence despite a correct answer.
+    assert format_location("pkg/a.py", None, None) == "pkg/a.py"
+
+
+def test_format_location_with_no_file_path():
+    assert format_location(None, None, None) == "(no location)"

@@ -1,3 +1,4 @@
+from dataclasses import replace
 from unittest.mock import patch
 
 from typer.testing import CliRunner
@@ -6,8 +7,8 @@ from codebase_agent.application import ApplicationError
 from codebase_agent.cli.main import app
 from codebase_agent.insights import RepositoryReport, RepositoryStatistics
 from codebase_agent.knowledge import RepoMetadata
-from codebase_agent.reasoning import AnswerConfidence, ReasoningResult
-from codebase_agent.retrieval.evidence import EvidenceBundle
+from codebase_agent.reasoning import AnswerConfidence, Citation, ReasoningResult
+from codebase_agent.retrieval.evidence import EvidenceBundle, EvidenceSource
 from codebase_agent.retrieval.plan import (
     RetrievalPlan,
     RetrievalStep,
@@ -144,6 +145,32 @@ def test_ask_command_prints_answer(mock_service_cls):
 
     assert result.exit_code == 0
     assert "the answer" in result.output
+
+
+@patch("codebase_agent.cli.main.ReasoningService")
+def test_ask_command_omits_none_none_for_file_level_citation(mock_service_cls):
+    # Regression test: import_graph citations have no line numbers, and
+    # rendering that as literal "path:None-None" reads as broken output.
+    answer = replace(
+        _answer(),
+        citations=(
+            Citation(
+                evidence_index=1,
+                qualified_name=None,
+                file_path="pkg/a.py",
+                start_line=None,
+                end_line=None,
+                source=EvidenceSource.IMPORT_GRAPH,
+            ),
+        ),
+    )
+    mock_service_cls.return_value.answer_question.return_value = answer
+
+    result = runner.invoke(app, ["ask", "repo", "what imports a.py?"])
+
+    assert result.exit_code == 0
+    assert "None-None" not in result.output
+    assert "pkg/a.py" in result.output
 
 
 @patch("codebase_agent.cli.main.InsightsService")

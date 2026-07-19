@@ -39,6 +39,23 @@ class EvidenceItem:
     confidence: float | None
 
 
+def format_location(
+    file_path: str | None, start_line: int | None, end_line: int | None
+) -> str:
+    """Human-readable file:line location for an evidence item or citation.
+
+    Degrades gracefully when line numbers aren't known - e.g. import_graph
+    evidence is file-level, not line-level - rather than rendering literal
+    "None" values, which reads as broken/missing data to both a human and
+    the reasoning LLM (observed to make it distrust otherwise-solid evidence).
+    """
+    if file_path is None:
+        return "(no location)"
+    if start_line is None or end_line is None:
+        return file_path
+    return f"{file_path}:{start_line}-{end_line}"
+
+
 @dataclass(frozen=True)
 class ExecutionWarning:
     step: RetrievalStep

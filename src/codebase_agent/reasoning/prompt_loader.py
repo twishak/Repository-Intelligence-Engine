@@ -1,7 +1,7 @@
 from pathlib import Path
 from string import Template
 
-from codebase_agent.retrieval.evidence import EvidenceItem
+from codebase_agent.retrieval.evidence import EvidenceItem, format_location
 
 # Bump whenever system_prompt.txt or user_prompt.txt changes meaningfully, so
 # ReasoningResult.prompt_version lets evaluation/debugging tell which prompt
@@ -30,11 +30,7 @@ def _format_evidence(numbered_evidence: list[tuple[int, EvidenceItem]]) -> str:
 
     blocks = []
     for index, item in numbered_evidence:
-        location = (
-            f"{item.file_path}:{item.start_line}-{item.end_line}"
-            if item.file_path
-            else "(no location)"
-        )
+        location = format_location(item.file_path, item.start_line, item.end_line)
         confidence = f"{item.confidence:.2f}" if item.confidence is not None else "n/a"
         blocks.append(
             f"[{index}] source={item.source.value} location={location} confidence={confidence}\n"
