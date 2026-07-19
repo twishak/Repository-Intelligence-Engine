@@ -14,7 +14,11 @@ def resolve_symbol_candidates(
     Tries an exact qualified-name match first (confidence 1.0), then falls
     back to a short-name match (confidence 1.0 if it's unambiguous, lower if
     several symbols share that short name - e.g. two classes each with a
-    `run` method). Steps that need a qualified name (call_graph, hierarchy)
+    `run` method). For a partial dotted name like `Session.request` - a
+    completely natural way to name a symbol, but neither the full qualified
+    name (`requests.sessions.Session.request`) nor the bare short name
+    (`request`) - falls back further to matching qualified names ending in
+    `.<target>`. Steps that need a qualified name (call_graph, hierarchy)
     use this instead of requiring the planner/LLM to always supply an exact
     name up front.
     """
@@ -23,6 +27,12 @@ def resolve_symbol_candidates(
         return [(exact, RESOLVED_CONFIDENCE)]
 
     matches = kb.find_symbols_by_name(target)
+    if not matches and "." in target:
+        matches = [
+            symbol
+            for symbol in kb.all_symbols()
+            if symbol.qualified_name.endswith("." + target)
+        ]
     if not matches:
         return []
 

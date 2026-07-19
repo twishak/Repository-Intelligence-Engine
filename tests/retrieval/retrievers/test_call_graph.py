@@ -92,6 +92,37 @@ def test_falls_back_to_short_name_and_caps_confidence():
     assert all(i.confidence == 0.6 for i in items)
 
 
+def test_resolves_partial_dotted_target_via_suffix_match():
+    # Regression test: "what calls Session.request" planned a call_graph
+    # step with target="Session.request" - neither the full qualified name
+    # nor the bare short name, so this used to resolve to zero candidates
+    # and silently return no evidence despite real call edges existing.
+    kb = Mock()
+    kb.get_symbol.return_value = None
+    kb.find_symbols_by_name.return_value = []
+    kb.all_symbols.return_value = [_symbol("requests.sessions.Session.request")]
+    kb.callers_of.return_value = [
+        CallEdge(
+            "requests.sessions.Session.get",
+            "self.request",
+            "requests.sessions.Session.request",
+            "requests/sessions.py",
+            671,
+        )
+    ]
+    kb.get_source.return_value = None
+    step = RetrievalStep(
+        strategy=RetrievalStrategy.CALL_GRAPH,
+        target="Session.request",
+        direction="callers",
+    )
+
+    items = CallGraphRetriever().retrieve(kb, step)
+
+    assert len(items) == 1
+    kb.callers_of.assert_called_once_with("requests.sessions.Session.request")
+
+
 def test_no_target_returns_empty():
     step = RetrievalStep(strategy=RetrievalStrategy.CALL_GRAPH)
 
