@@ -148,6 +148,7 @@ def test_embed_isolates_a_single_long_chunk_into_its_own_batch():
     # no unrelated short chunks in it at all.
     embedder, fake_model = _embedder_with_fake_model(max_seq_length=10_000)
     embedder._batch_size = 4
+    embedder._max_tokens = 10_000  # this test is about batching, not the truncation cap
     shorts = [f"short{i}" for i in range(8)]  # 8 equal-length chunks -> 2 full batches
     long_chunk = "x" * 5000
     texts = [
