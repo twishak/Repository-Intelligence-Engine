@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from codebase_agent.retrieval.plan import RetrievalPriority, RetrievalStrategy
 from codebase_agent.retrieval.planner import RetrievalContext, RetrievalPlanner
 
@@ -184,3 +186,33 @@ def test_context_without_active_fields_leaves_prompt_unchanged():
     RetrievalPlanner(llm=llm).plan("q", context=context)
 
     assert llm.last_kwargs["messages"][1]["content"] == "q"
+
+
+@pytest.mark.integration
+def test_extracts_bare_identifier_not_descriptive_phrase():
+    # Regression test: "what does the option decorator do" against a real
+    # planner call used to produce target='option decorator' - the whole
+    # descriptive phrase from the question - instead of the actual
+    # identifier 'option', so it could never resolve to a real symbol no
+    # matter how permissive symbol resolution became.
+    plan = RetrievalPlanner().plan("what does the option decorator do")
+
+    targets = [step.target for step in plan.steps if step.target]
+    assert targets, "expected at least one step with a target"
+    for target in targets:
+        assert " " not in target, (
+            f"target {target!r} looks like a phrase, not an identifier"
+        )
+    assert "option" in targets
+
+
+@pytest.mark.integration
+def test_extracts_bare_identifier_for_a_class_method_phrase():
+    plan = RetrievalPlanner().plan("what does the login method on AuthService do")
+
+    targets = [step.target for step in plan.steps if step.target]
+    assert targets, "expected at least one step with a target"
+    for target in targets:
+        assert " " not in target, (
+            f"target {target!r} looks like a phrase, not an identifier"
+        )

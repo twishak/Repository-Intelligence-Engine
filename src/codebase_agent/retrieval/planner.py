@@ -65,9 +65,15 @@ _PLANNER_TOOL = {
                             "target": {
                                 "type": "string",
                                 "description": (
-                                    "Qualified or short symbol name (symbol_lookup, call_graph, "
-                                    "hierarchy), file path or dotted module name (import_graph). "
-                                    "Omit for semantic_search."
+                                    "The exact code identifier only, character-for-character as it "
+                                    "would appear in the source - e.g. 'option', 'AuthService.login', "
+                                    "or the fully qualified 'pkg.module.AuthService.login' "
+                                    "(symbol_lookup, call_graph, hierarchy); a file path or dotted "
+                                    "module name (import_graph). Never a description of the symbol: "
+                                    "if the question says 'the login function' or 'the option "
+                                    "decorator', the target is 'login' or 'option' - strip words like "
+                                    "'the', 'function', 'method', 'class', or 'decorator' that "
+                                    "describe the symbol rather than name it. Omit for semantic_search."
                                 ),
                             },
                             "query": {
@@ -97,7 +103,10 @@ _PLANNER_TOOL = {
 
 _SYSTEM_PROMPT = (
     "You plan how to gather evidence to answer questions about a codebase. "
-    "Call build_retrieval_plan exactly once with one or more retrieval steps."
+    "Call build_retrieval_plan exactly once with one or more retrieval steps. "
+    "A step's target must be the exact identifier as it appears in code, never "
+    "a descriptive phrase - 'the option decorator' names the symbol 'option', "
+    "not 'option decorator'."
 )
 
 
