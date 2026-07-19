@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Pre-1.0: only the `master` branch is supported. Once a `1.0.0` tag exists, security fixes will target the latest
+Pre-1.0: only the `main` branch is supported. Once a `1.0.0` tag exists, security fixes will target the latest
 released minor version.
 
 ## Reporting a vulnerability
