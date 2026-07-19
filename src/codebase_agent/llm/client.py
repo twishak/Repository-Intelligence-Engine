@@ -30,6 +30,7 @@ class GroqClient:
         messages: list[dict],
         tools: list[dict] | None = None,
         tool_choice: str | dict | None = None,
+        temperature: float | None = None,
     ) -> ChatCompletionMessage:
         client = self._get_client()
         # tools/tool_choice must be omitted entirely rather than passed as an
@@ -39,6 +40,8 @@ class GroqClient:
             kwargs["tools"] = tools
         if tool_choice is not None:
             kwargs["tool_choice"] = tool_choice
+        if temperature is not None:
+            kwargs["temperature"] = temperature
 
         response = client.chat.completions.create(**kwargs)
         return response.choices[0].message

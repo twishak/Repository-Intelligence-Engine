@@ -62,6 +62,17 @@ def test_chat_omits_tools_and_tool_choice_when_not_given():
     sent = client._client.chat.completions.last_call_kwargs
     assert "tools" not in sent
     assert "tool_choice" not in sent
+    assert "temperature" not in sent
+
+
+def test_chat_forwards_temperature_when_given():
+    client = GroqClient(model="test-model", api_key="fake")
+    client._client = _FakeGroqSDKClient(object())
+
+    client.chat(messages=[{"role": "user", "content": "hi"}], temperature=0)
+
+    sent = client._client.chat.completions.last_call_kwargs
+    assert sent["temperature"] == 0
 
 
 @pytest.mark.integration
