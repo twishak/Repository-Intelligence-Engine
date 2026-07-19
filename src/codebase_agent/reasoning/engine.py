@@ -101,6 +101,11 @@ class ReasoningEngine:
                 "type": "function",
                 "function": {"name": "submit_reasoning_result"},
             },
+            # confidence/evidence_sufficient are discrete judgments over fixed
+            # evidence, not creative generation - the same evidence should
+            # reliably get the same confidence label rather than occasionally
+            # sampling a different one from one run to the next.
+            temperature=0,
         )
 
         if message is None:

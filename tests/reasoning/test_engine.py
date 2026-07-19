@@ -121,6 +121,25 @@ def test_resolves_valid_citation_to_exact_evidence_location():
     assert result.model == "fake-model"
 
 
+def test_reasons_at_zero_temperature_for_deterministic_confidence():
+    # Regression test: the same evidence should reliably get the same
+    # confidence/evidence_sufficient judgment rather than occasionally
+    # sampling a different one from one run to the next.
+    llm = _FakeLLM(
+        _tool_call_message(
+            answer="foo does X [1]",
+            citations=[1],
+            confidence="high",
+            evidence_sufficient=True,
+        )
+    )
+    bundle = _bundle([_item()])
+
+    ReasoningEngine(llm=llm).reason(bundle)
+
+    assert llm.last_kwargs["temperature"] == 0
+
+
 def test_out_of_range_citation_is_dropped_from_citations_but_kept_in_raw_indices():
     llm = _FakeLLM(
         _tool_call_message(

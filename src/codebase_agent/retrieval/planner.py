@@ -144,6 +144,12 @@ class RetrievalPlanner:
                 "type": "function",
                 "function": {"name": "build_retrieval_plan"},
             },
+            # This is a classification decision (which strategy/target fits
+            # the question), not creative generation - deterministic output
+            # means the same question reliably gets the same plan instead of
+            # occasionally sampling a plausible-but-wrong strategy or a
+            # hallucinated symbol name.
+            temperature=0,
         )
         return _parse_plan(message, question)
 

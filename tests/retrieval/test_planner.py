@@ -54,6 +54,22 @@ def test_parses_single_step_plan():
     assert plan.priority == RetrievalPriority.NORMAL
 
 
+def test_plans_at_zero_temperature_for_deterministic_strategy_choice():
+    # Regression test: without a fixed temperature, the same question could
+    # get routed to a different (sometimes wrong, e.g. a hallucinated
+    # symbol name) retrieval strategy from one call to the next.
+    llm = _FakeLLM(
+        _tool_call_message(
+            intent="symbol_lookup",
+            steps=[{"strategy": "symbol_lookup", "target": "AuthService.login"}],
+        )
+    )
+
+    RetrievalPlanner(llm=llm).plan("explain AuthService.login")
+
+    assert llm.last_kwargs["temperature"] == 0
+
+
 def test_parses_multi_step_plan_for_impact_analysis():
     llm = _FakeLLM(
         _tool_call_message(
