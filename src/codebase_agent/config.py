@@ -31,6 +31,14 @@ class Settings(BaseSettings):
     # quadratic attention memory - this caps truncation below that regardless
     # of the model's native limit or the GPU installed.
     embedding_max_tokens: int = 4096
+    # Bounds count x longest-item-length for a single encode() call. GPU
+    # attention memory scales with batch_size x seq_len^2, so a fixed item
+    # count alone lets many long chunks land in the same batch and still
+    # OOM even when each chunk is under embedding_max_tokens individually.
+    # 8192 = embedding_batch_size(32) x a ~256-token reference chunk, so
+    # typical short/medium chunks still batch at the full batch size, while
+    # batches made up of chunks near embedding_max_tokens shrink to 1-2 items.
+    embedding_max_tokens_per_batch: int = 8192
 
     api_host: str = "127.0.0.1"
     api_port: int = 8000

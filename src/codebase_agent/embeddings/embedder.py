@@ -1,6 +1,6 @@
 import logging
 
-from tqdm.auto import tqdm, trange
+from tqdm.auto import tqdm
 
 from codebase_agent.config import settings
 
@@ -20,11 +20,15 @@ class CodeEmbedder:
         device: str | None = None,
         batch_size: int | None = None,
         max_tokens: int | None = None,
+        max_tokens_per_batch: int | None = None,
     ) -> None:
         self._model_name = model_name or settings.embedding_model_name
         self._device = device or settings.embedding_device
         self._batch_size = batch_size or settings.embedding_batch_size
         self._max_tokens = max_tokens or settings.embedding_max_tokens
+        self._max_tokens_per_batch = (
+            max_tokens_per_batch or settings.embedding_max_tokens_per_batch
+        )
         self._model = None  # loaded lazily on first use
 
     def embed(self, texts: list[str]) -> list[list[float]]:
@@ -42,17 +46,10 @@ class CodeEmbedder:
         # real token length here, then calling encode() once per bucket,
         # bounds each batch's padding to chunks of genuinely similar length.
         order = sorted(range(len(texts)), key=lambda i: token_lengths[i])
+        batches = self._build_batches(order, token_lengths)
         vectors: list[list[float] | None] = [None] * len(texts)
 
-        show_progress_bar = len(texts) > self._batch_size
-        for start in trange(
-            0,
-            len(order),
-            self._batch_size,
-            desc="Batches",
-            disable=not show_progress_bar,
-        ):
-            batch_indices = order[start : start + self._batch_size]
+        for batch_indices in tqdm(batches, desc="Batches", disable=len(batches) <= 1):
             batch_texts = [texts[i] for i in batch_indices]
             batch_vectors = model.encode(
                 batch_texts,
@@ -65,6 +62,41 @@ class CodeEmbedder:
                 vectors[idx] = vector.tolist()
 
         return vectors
+
+    def _build_batches(
+        self, order: list[int], token_lengths: list[int]
+    ) -> list[list[int]]:
+        """Group length-sorted indices into batches bounded by item count
+        AND a token budget (count x longest item in the batch, since
+        encode() pads every item in a call to the longest one in it).
+
+        A fixed item count alone isn't enough: GPU attention memory scales
+        with batch_size x seq_len^2, so a batch of many chunks that are each
+        individually under embedding_max_tokens can still exceed what a
+        single long chunk needs alone. The token budget shrinks the batch
+        automatically as the chunks going into it get longer, instead of
+        always packing embedding_batch_size items regardless of length.
+        """
+        batches: list[list[int]] = []
+        current: list[int] = []
+        current_max_len = 0
+        for i in order:
+            length = token_lengths[i]
+            candidate_max_len = max(current_max_len, length)
+            candidate_count = len(current) + 1
+            if current and (
+                candidate_count > self._batch_size
+                or candidate_count * candidate_max_len > self._max_tokens_per_batch
+            ):
+                batches.append(current)
+                current = [i]
+                current_max_len = length
+            else:
+                current.append(i)
+                current_max_len = candidate_max_len
+        if current:
+            batches.append(current)
+        return batches
 
     def _get_model(self):
         if self._model is None:

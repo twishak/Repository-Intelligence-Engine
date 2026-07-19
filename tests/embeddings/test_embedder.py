@@ -165,6 +165,23 @@ def test_embed_isolates_a_single_long_chunk_into_its_own_batch():
     assert calls_with_long_chunk == [[long_chunk]]
 
 
+def test_embed_shrinks_batch_size_for_many_long_chunks_to_respect_token_budget():
+    # Regression test: a real ingestion OOM'd even after individual chunks
+    # were capped at embedding_max_tokens, because up to embedding_batch_size
+    # chunks that were each under the cap still landed in the same batch -
+    # and GPU attention memory scales with batch_size x seq_len^2, not just
+    # seq_len. The token budget (count x longest item) must shrink the batch
+    # itself as the chunks going into it get longer.
+    embedder, fake_model = _embedder_with_fake_model(max_seq_length=10_000)
+    embedder._batch_size = 32
+    embedder._max_tokens_per_batch = 2000
+    texts = ["x" * 1000] * 4  # 4 chunks x 1000 tokens: budget allows 2 per batch
+
+    embedder.embed(texts)
+
+    assert [len(call) for call in fake_model.encode_calls] == [2, 2]
+
+
 def test_embed_preserves_original_order_in_results():
     embedder, _ = _embedder_with_fake_model(max_seq_length=1000)
     embedder._batch_size = 2
