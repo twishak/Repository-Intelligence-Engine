@@ -26,6 +26,11 @@ class Settings(BaseSettings):
         None  # None = auto-detect (cuda if available, else cpu)
     )
     embedding_batch_size: int = 32
+    # jina-embeddings-v2-base-code natively supports up to 8192 tokens, but a
+    # single chunk that long can OOM an 8GB consumer GPU on its own via
+    # quadratic attention memory - this caps truncation below that regardless
+    # of the model's native limit or the GPU installed.
+    embedding_max_tokens: int = 4096
 
     api_host: str = "127.0.0.1"
     api_port: int = 8000

@@ -56,6 +56,20 @@ def test_embed_truncates_oversized_text_before_encoding():
     assert fake_model.encoded_texts == ["x" * 10]
 
 
+def test_embed_truncates_to_configured_cap_even_when_model_allows_more():
+    # Regression test: a single chunk near the model's native max_seq_length
+    # (e.g. jina-code's 8192) can OOM a consumer GPU via quadratic attention
+    # memory alone, independent of batch size. embedding_max_tokens caps
+    # truncation below the model's native limit regardless of hardware.
+    embedder, fake_model = _embedder_with_fake_model(max_seq_length=10_000)
+    embedder._max_tokens = 10
+    oversized = "x" * 50
+
+    embedder.embed([oversized])
+
+    assert fake_model.encoded_texts == ["x" * 10]
+
+
 def test_embed_leaves_normal_sized_text_unchanged():
     embedder, fake_model = _embedder_with_fake_model(max_seq_length=10)
     normal = "x" * 5

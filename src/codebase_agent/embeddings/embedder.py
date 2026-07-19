@@ -19,10 +19,12 @@ class CodeEmbedder:
         model_name: str | None = None,
         device: str | None = None,
         batch_size: int | None = None,
+        max_tokens: int | None = None,
     ) -> None:
         self._model_name = model_name or settings.embedding_model_name
         self._device = device or settings.embedding_device
         self._batch_size = batch_size or settings.embedding_batch_size
+        self._max_tokens = max_tokens or settings.embedding_max_tokens
         self._model = None  # loaded lazily on first use
 
     def embed(self, texts: list[str]) -> list[list[float]]:
@@ -93,15 +95,21 @@ class CodeEmbedder:
         function or module-level block) reaches `model.encode()` unbounded,
         which can spike attention memory unpredictably - this keeps the bound
         deterministic regardless of what the model does on its own.
+
+        The cap used is `min(native max_seq_length, settings.embedding_max_tokens)`,
+        not the model's native max alone: jina-code's native 8192-token limit is
+        long enough that a single chunk near it can OOM an 8GB consumer GPU via
+        quadratic attention memory, independent of batch size.
         """
         model = self._model
-        max_tokens = getattr(model, "max_seq_length", None)
+        native_max_tokens = getattr(model, "max_seq_length", None)
         tokenizer = getattr(model, "tokenizer", None)
-        if max_tokens is None or tokenizer is None:
+        if native_max_tokens is None or tokenizer is None:
             # No token-level info available - character count is the same
             # proxy sentence-transformers' own internal batching falls back
             # to, and there's nothing to truncate against without a tokenizer.
             return texts, [len(text) for text in texts]
+        max_tokens = min(native_max_tokens, self._max_tokens)
 
         result_texts = []
         result_lengths = []
